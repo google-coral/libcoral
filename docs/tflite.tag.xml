@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<tagfile>
+  <compound kind="namespace">
+    <name>tflite</name>
+    <filename></filename>
+    <class kind="class">tflite::Interpreter</class>
+  </compound>
+  <compound kind="class">
+    <name>tflite::Interpreter</name>
+    <filename>https://www.tensorflow.org/lite/api_docs/cc/class/tflite/interpreter</filename>
+  </compound>
+</tagfile>

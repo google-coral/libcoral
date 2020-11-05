@@ -1,0 +1,33 @@
+GENERATE_XML           = YES
+GENERATE_HTML          = NO
+GENERATE_LATEX         = NO
+OUTPUT_DIRECTORY       = _build
+XML_OUTPUT             = xml
+STRIP_FROM_PATH        =
+LAYOUT_FILE            =
+HTML_HEADER            =
+HTML_FOOTER            =
+CASE_SENSE_NAMES       = NO
+SORT_GROUP_NAMES       = YES
+JAVADOC_AUTOBRIEF      = YES
+INPUT_FILTER           = ./doxygenate.sh
+
+INPUT                  = ../libedgetpu/ \
+                         ../coral/basic/ \
+                         ../coral/classification/ \
+                         ../coral/detection/ \
+                         ../coral/bbox.h \
+                         ../coral/tflite_utils.h \
+                         ../coral/pipeline/ \
+                         ../coral/learn/backprop/ \
+                         ../coral/learn/
+
+EXCLUDE                = ../coral/pipeline/internal/ \
+                         ../coral/pipeline/test_utils.h \
+                         ../coral/learn/backprop/test_utils.h
+
+FILE_PATTERNS          = *.h
+RECURSIVE              = YES
+
+# Sphinx currently does not support tagfiles, so nothing happens here:
+TAGFILES               = "./tflite.tag.xml"

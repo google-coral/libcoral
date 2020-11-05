@@ -1,0 +1,3 @@
+# libcoral
+
+*   Initial libcoral release
