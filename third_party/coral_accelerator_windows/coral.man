@@ -35,7 +35,7 @@
                    field        = "temperature"
                    type         = "perf_counter_rawcount"
                    detailLevel  = "standard"
-                   defaultScale = "1"/>
+                   defaultScale = "-3"/>
 
         </counterSet>
 
