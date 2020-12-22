@@ -1,8 +1,31 @@
 # libcoral
 
+This repository contains sources for the libcoral C++ API, which provides
+convenient functions to perform inferencing and on-device transfer learning
+with TensorFlow Lite models on [Coral devices](https://coral.ai/products/).
+
+For developer documentation, see our guide to [Run inference on the Edge TPU
+with C++](https://coral.ai/docs/edgetpu/tflite-cpp/) and check out the
+[libcoral API reference](https://coral.ai/docs/reference/cpp/).
+
+
 ## Compilation
 
-You can build everything using `make` command which invokes
+Be sure to clone this repo with submodules:
+
+```
+git clone --recurse-submodules https://github.com/google-coral/libcoral
+```
+
+If you already cloned without the submodules. You can add them with this:
+
+```
+cd libcoral
+
+git submodule init && git submodule update
+```
+
+Then you can build everything using `make` command which invokes
 [Bazel](https://bazel.build/) internally.
 
 For example, run `make tests` to build all C++ unit tests or `make benchmarks`
