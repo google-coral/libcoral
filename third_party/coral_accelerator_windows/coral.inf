@@ -17,7 +17,7 @@ Provider=%ManufacturerName%
 ;
 CatalogFile=coral.cat
 ;
-DriverVer = 06/23/2020,11.23.25.208
+DriverVer = 01/08/2021,13.8.9.820
 
 [DestinationDirs]
 DefaultDestDir = 12
