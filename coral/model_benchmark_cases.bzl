@@ -125,4 +125,52 @@ MODEL_BENCHMARK_CASES = [
         "benchmark_name": "BM_Tf2Resnet50ImagenetPtq",
         "model_path": "tfhub_tf2_resnet_50_imagenet_ptq",
     },
+    {
+        "benchmark_name": "BM_Tf2SsdMobilenetV2Ptq",
+        "model_path": "tf2_ssd_mobilenet_v2_coco17_ptq",
+    },
+    {
+        "benchmark_name": "BM_Tf2SsdMobilenetV1Fpn640x640Ptq",
+        "model_path": "tf2_ssd_mobilenet_v1_fpn_640x640_coco17_ptq",
+    },
+    {
+        "benchmark_name": "BM_Deeplab513MvEdgetpuDm075_WithArgMax",
+        "model_path": "deeplab_mobilenet_edgetpu_slim_cityscapes_quant",
+    },
+    {
+        "benchmark_name": "BM_TfhubPopularUsProductsPtq",
+        "model_path": "tfhub_tf1_popular_us_products_ptq",
+    },
+    {
+        "benchmark_name": "BM_TfhubPopularUsProductsPtqFcSplit",
+        "model_path": "tfhub_tf1_popular_us_products_ptq_fc_split",
+    },
+    {
+        "benchmark_name": "BM_EfficientDetLite0_320",
+        "model_path": "efficientdet_lite0_320_ptq",
+    },
+    {
+        "benchmark_name": "BM_EfficientDetLite1_384",
+        "model_path": "efficientdet_lite1_384_ptq",
+    },
+    {
+        "benchmark_name": "BM_EfficientDetLite2_448",
+        "model_path": "efficientdet_lite2_448_ptq",
+    },
+    {
+        "benchmark_name": "BM_EfficientDetLite3_512",
+        "model_path": "efficientdet_lite3_512_ptq",
+    },
+    {
+        "benchmark_name": "BM_EfficientDetLite3x_640",
+        "model_path": "efficientdet_lite3x_640_ptq",
+        "target_device": "{\\\"form\\\": \\\"mpcie\\\"}",
+    },
+]
+
+LSTM_MODEL_BENCHMARK_CASES = [
+    {
+        "benchmark_name": "BM_KerasLstmMnist",
+        "model_path": "keras_lstm_mnist_ptq",
+    },
 ]

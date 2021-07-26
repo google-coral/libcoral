@@ -1,15 +1,34 @@
+/* Copyright 2019-2021 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================*/
+
 #include "coral/pipeline/pipelined_model_runner.h"
 
 #include <thread>  // NOLINT
 #include <unordered_map>
 #include <unordered_set>
 
+#include "absl/container/flat_hash_map.h"
+#include "absl/container/node_hash_map.h"
 #include "absl/memory/memory.h"
+#include "absl/status/status.h"
+#include "absl/strings/str_format.h"
 #include "absl/synchronization/mutex.h"
 #include "coral/pipeline/internal/default_allocator.h"
 #include "coral/pipeline/internal/memory_pool_allocator.h"
 #include "coral/pipeline/internal/segment_runner.h"
-#include "coral/pipeline/utils.h"
+#include "coral/tflite_utils.h"
 #include "glog/logging.h"
 #include "tensorflow/lite/interpreter.h"
 
@@ -53,7 +72,7 @@ PipelinedModelRunner::PipelinedModelRunner(
 
   VLOG(1) << "Finding last segments that consumes a tensor...";
   // Key is (output) tensor name, value is the last segment that consumes it.
-  std::unordered_map<std::string, int> last_consumed_by_map;
+  absl::node_hash_map<std::string, int> last_consumed_by_map;
   for (int i = 0; i < num_segments_ - 1; ++i) {
     for (const int output_index : segments_interpreters_[i]->outputs()) {
       const auto* output_name =
@@ -77,7 +96,7 @@ PipelinedModelRunner::PipelinedModelRunner(
   }
 
   VLOG(1) << "Calculating intermediate tensors buffer size...";
-  std::unordered_map<size_t, int> tensor_size_to_copy_map;
+  absl::flat_hash_map<size_t, int> tensor_size_to_copy_map;
   for (int i = 0; i < num_segments_ - 1; ++i) {
     VLOG(1) << "Analyzing output tensors of segment " << i;
     for (const int index : segments_interpreters_[i]->outputs()) {
@@ -123,7 +142,10 @@ PipelinedModelRunner::PipelinedModelRunner(
 }
 
 PipelinedModelRunner::~PipelinedModelRunner() {
-  ShutdownPipeline();
+  const auto status = ShutdownPipeline();
+  if (!status.ok()) {
+    LOG(ERROR) << "Failed to shutdown status: " << status;
+  }
 
   if (!queues_[num_segments_].empty()) {
     LOG(ERROR) << "There are unconsumed output tensors in the pipeline which "
@@ -132,8 +154,19 @@ PipelinedModelRunner::~PipelinedModelRunner() {
   }
 }
 
-bool PipelinedModelRunner::Push(
+absl::Status PipelinedModelRunner::Push(
     const std::vector<PipelineTensor>& input_tensors) {
+  // If any segment runner has error, return false immediately.
+  const auto status = GetRunnerStatus();
+  if (!status.ok()) {
+    LOG(ERROR) << "Shutdown pipeline due to runner error.";
+    const auto shutdown_status = ShutdownPipeline();
+    if (!shutdown_status.ok()) {
+      LOG(ERROR) << "Failed to shutdown status: " << shutdown_status;
+    }
+    return status;
+  }
+
   // An empty request signals shutting down the pipeline.
   if (input_tensors.empty()) {
     LOG(INFO) << "Thread: " << std::this_thread::get_id()
@@ -146,6 +179,7 @@ bool PipelinedModelRunner::Push(
   TensorMap managed_input_tensors;
   for (int i = 0; i < input_tensors.size(); ++i) {
     const auto& name = interpreter->input_tensor(i)->name;
+    CHECK_EQ(name, input_tensors[i].name);
     managed_input_tensors.insert({
         name,
         {input_tensors[i], tensor_consumers_count_[name]},
@@ -155,22 +189,34 @@ bool PipelinedModelRunner::Push(
   absl::ReaderMutexLock lock(&mu_);
   if (pipeline_on_) {
     queues_[0].push(managed_input_tensors);
-    return true;
+    return absl::OkStatus();
   } else {
-    LOG(INFO) << "Pipeline was turned off before.";
-    return false;
+    LOG(WARNING) << "Pipeline was turned off before.";
+    return absl::InternalError("Pipeline was turned off before.");
   }
 }
 
-bool PipelinedModelRunner::Pop(std::vector<PipelineTensor>* output_tensors) {
+absl::Status PipelinedModelRunner::Pop(
+    std::vector<PipelineTensor>* output_tensors) {
   VLOG(1) << "Retrieving output tensors....";
 
-  CHECK_EQ(output_tensors->size(), 0);
+  CHECK(output_tensors->empty());
   TensorMap managed_output_tensors;
 
-  // Return false if the queue is empty and `StopWaiters()` is called.
   if (!queues_[num_segments_].Wait(&managed_output_tensors)) {
-    return false;
+    LOG(INFO) << "Queue is empty and `StopWaiters()` is called.";
+    return absl::OkStatus();
+  }
+
+  // If any segment runner has error, return false directly.
+  const auto status = GetRunnerStatus();
+  if (!status.ok()) {
+    LOG(ERROR) << "Shutdown pipeline due to runner error.";
+    const auto shutdown_status = ShutdownPipeline();
+    if (!shutdown_status.ok()) {
+      LOG(ERROR) << "Failed to shutdown status: " << shutdown_status;
+    }
+    return status;
   }
 
   auto* interpreter = segments_interpreters_[num_segments_ - 1];
@@ -179,20 +225,21 @@ bool PipelinedModelRunner::Pop(std::vector<PipelineTensor>* output_tensors) {
   for (int i = 0; i < interpreter->outputs().size(); ++i) {
     const auto& name = interpreter->output_tensor(i)->name;
     const auto& managed_output_tensor = managed_output_tensors[name];
+    CHECK_EQ(name, managed_output_tensor.tensor.name);
     // Sanity check.
     CHECK_EQ(managed_output_tensor.num_consumers, 0);
     output_tensors->push_back(managed_output_tensor.tensor);
   }
 
-  return true;
+  return absl::OkStatus();
 }
 
-bool PipelinedModelRunner::ShutdownPipeline() {
+absl::Status PipelinedModelRunner::ShutdownPipeline() {
   absl::MutexLock lock(&mu_);
   if (!pipeline_on_) {
-    LOG(INFO) << "Thread: " << std::this_thread::get_id()
-              << " Pipeline was turned off before.";
-    return false;
+    LOG(ERROR) << "Thread: " << std::this_thread::get_id()
+               << " Pipeline was turned off before.";
+    return absl::InternalError("Pipeline was turned off before.");
   }
 
   LOG(INFO) << "Thread: " << std::this_thread::get_id()
@@ -206,7 +253,7 @@ bool PipelinedModelRunner::ShutdownPipeline() {
 
   pipeline_on_ = false;
   LOG(INFO) << "Thread: " << std::this_thread::get_id() << " Pipeline is off.";
-  return true;
+  return absl::OkStatus();
 }
 
 std::vector<SegmentStats> PipelinedModelRunner::GetSegmentStats() const {
@@ -216,4 +263,16 @@ std::vector<SegmentStats> PipelinedModelRunner::GetSegmentStats() const {
   }
   return result;
 }
+
+absl::Status PipelinedModelRunner::GetRunnerStatus() const {
+  for (int i = 0; i < segments_runners_.size(); ++i) {
+    const auto& s = segments_runners_[i]->runner_status();
+    if (!s.ok())
+      return absl::Status(
+          s.code(),
+          absl::StrFormat("Segment %d runner error: %s", i, s.message()));
+  }
+  return absl::OkStatus();
+}
+
 }  // namespace coral

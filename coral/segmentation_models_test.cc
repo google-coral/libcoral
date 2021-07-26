@@ -1,3 +1,18 @@
+/* Copyright 2019-2021 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================*/
+
 // Tests correctness of image segmentation models.
 
 #include <algorithm>
@@ -35,40 +50,6 @@ std::vector<float> Argmax(const std::vector<float>& input, size_t size) {
   return argmax;
 }
 
-// Runs given segmentation model on the given input image and returns the
-// segmentation mask. kTfLiteInt64 tensor is directly converted to the mask.
-// For kTfLiteUInt8 tensor Argmax is applied before conversion.
-std::vector<uint8_t> RunSegmentation(const std::string& model_name,
-                                     const std::string& image_name,
-                                     size_t mask_size) {
-  auto model = LoadModelOrDie(TestDataPath(model_name));
-  auto tpu_context =
-      ContainsEdgeTpuCustomOp(*model) ? GetEdgeTpuContextOrDie() : nullptr;
-  auto interpreter = MakeEdgeTpuInterpreterOrDie(*model, tpu_context.get());
-  CHECK_EQ(interpreter->AllocateTensors(), kTfLiteOk);
-  CopyResizedImage(TestDataPath(image_name), *interpreter->input_tensor(0));
-  CHECK_EQ(interpreter->Invoke(), kTfLiteOk);
-
-  CHECK_EQ(interpreter->outputs().size(), 1);
-  const TfLiteTensor& tensor = *interpreter->output_tensor(0);
-
-  std::vector<uint8_t> mask;
-  if (tensor.type == kTfLiteUInt8) {
-    auto data = Argmax(DequantizeTensor<float>(tensor), mask_size);
-    mask.resize(data.size());
-    std::copy(data.begin(), data.end(), mask.begin());
-  } else if (tensor.type == kTfLiteInt64) {
-    // kTfLiteInt64 output tensor type for the models used in this test indicate
-    // the direct output from Argmax operator.
-    auto data = TensorData<int64_t>(tensor);
-    mask.resize(data.size());
-    std::copy(data.begin(), data.end(), mask.begin());
-  } else {
-    LOG(FATAL) << "Unsupported tensor type: " << tensor.type;
-  }
-  return mask;
-}
-
 std::vector<uint8_t> ReadSegmentation(const std::string& image_path) {
   ImageDims dims;
   auto mask = ReadBmp(TestDataPath(image_path), &dims);
@@ -78,7 +59,7 @@ std::vector<uint8_t> ReadSegmentation(const std::string& image_path) {
   return mask;
 }
 
-TEST(ModelCorrectnessUtilsTest, IntersectionOverUnion) {
+TEST(ModelCorrectnessUtilsCpuTest, IntersectionOverUnion) {
   EXPECT_FLOAT_EQ(IntersectionOverUnion({1, 1, 100, 100}, {2, 2, 220, 220}),
                   0.0);
   EXPECT_FLOAT_EQ(IntersectionOverUnion({2, 2, 100, 220}, {2, 2, 220, 220}),
@@ -89,7 +70,7 @@ TEST(ModelCorrectnessUtilsTest, IntersectionOverUnion) {
                   1.0);
 }
 
-TEST(ModelCorrectnessUtilsTest, Argmax) {
+TEST(ModelCorrectnessUtilsCpuTest, Argmax) {
   const std::vector<float> input0 = {
       0.4, 0.5, 0.3, 0.1, 0.2,  //  argmax=1
       0.0, 0.0, 1.0, 0.8, 0.4,  //  argmax=2
@@ -111,7 +92,44 @@ TEST(ModelCorrectnessUtilsTest, Argmax) {
               ::testing::ContainerEq(std::vector<float>{1.0, 2.0, 0.0, 2.0}));
 }
 
-TEST(ModelCorrectnessTest, Deeplab513Mv2Dm1_WithArgMax) {
+class ModelCorrectnessEdgeTpuTest : public EdgeTpuCacheTestBase {
+ protected:
+  // Runs given segmentation model on the given input image and returns the
+  // segmentation mask. kTfLiteInt64 tensor is directly converted to the mask.
+  // For kTfLiteUInt8 tensor Argmax is applied before conversion.
+  std::vector<uint8_t> RunSegmentation(const std::string& model_name,
+                                       const std::string& image_name,
+                                       size_t mask_size) {
+    auto model = LoadModelOrDie(TestDataPath(model_name));
+    auto tpu_context =
+        ContainsEdgeTpuCustomOp(*model) ? GetTpuContextCache() : nullptr;
+    auto interpreter = MakeEdgeTpuInterpreterOrDie(*model, tpu_context);
+    CHECK_EQ(interpreter->AllocateTensors(), kTfLiteOk);
+    CopyResizedImage(TestDataPath(image_name), *interpreter->input_tensor(0));
+    CHECK_EQ(interpreter->Invoke(), kTfLiteOk);
+
+    CHECK_EQ(interpreter->outputs().size(), 1);
+    const TfLiteTensor& tensor = *interpreter->output_tensor(0);
+
+    std::vector<uint8_t> mask;
+    if (tensor.type == kTfLiteUInt8) {
+      auto data = Argmax(DequantizeTensor<float>(tensor), mask_size);
+      mask.resize(data.size());
+      std::copy(data.begin(), data.end(), mask.begin());
+    } else if (tensor.type == kTfLiteInt64) {
+      // kTfLiteInt64 output tensor type for the models used in this test
+      // indicate the direct output from Argmax operator.
+      auto data = TensorData<int64_t>(tensor);
+      mask.resize(data.size());
+      std::copy(data.begin(), data.end(), mask.begin());
+    } else {
+      LOG(FATAL) << "Unsupported tensor type: " << tensor.type;
+    }
+    return mask;
+  }
+};
+
+TEST_F(ModelCorrectnessEdgeTpuTest, Deeplab513Mv2Dm1_WithArgMax) {
   // See label map: test_data/pascal_voc_segmentation_labels.txt
   const auto mask = ReadSegmentation("bird_segmentation_mask.bmp");
   const auto cpu_mask = RunSegmentation("deeplabv3_mnv2_pascal_quant.tflite",
@@ -125,7 +143,7 @@ TEST(ModelCorrectnessTest, Deeplab513Mv2Dm1_WithArgMax) {
   EXPECT_GT(IntersectionOverUnion(cpu_mask, edgetpu_mask), 0.99);
 }
 
-TEST(ModelCorrectnessTest, Deeplab513Mv2Dm05_WithArgMax) {
+TEST_F(ModelCorrectnessEdgeTpuTest, Deeplab513Mv2Dm05_WithArgMax) {
   // See label map: test_data/pascal_voc_segmentation_labels.txt
   const auto mask = ReadSegmentation("bird_segmentation_mask.bmp");
   const auto cpu_mask =
@@ -140,9 +158,25 @@ TEST(ModelCorrectnessTest, Deeplab513Mv2Dm05_WithArgMax) {
   EXPECT_GT(IntersectionOverUnion(cpu_mask, edgetpu_mask), 0.98);
 }
 
+TEST_F(ModelCorrectnessEdgeTpuTest, Deeplab513MvEdgetpuDm075_WithArgMax) {
+  // See label map: test_data/cityscapes_segmentation_labels.txt
+  const auto mask = ReadSegmentation("cityscapes_segmentation_mask.bmp");
+  const auto cpu_mask =
+      RunSegmentation("deeplab_mobilenet_edgetpu_slim_cityscapes_quant.tflite",
+                      "cityscapes_segmentation.bmp", mask.size());
+  const auto edgetpu_mask = RunSegmentation(
+      "deeplab_mobilenet_edgetpu_slim_cityscapes_quant_edgetpu.tflite",
+      "cityscapes_segmentation.bmp", mask.size());
+
+  EXPECT_GT(IntersectionOverUnion(mask, cpu_mask), 0.84);
+  EXPECT_GT(IntersectionOverUnion(mask, edgetpu_mask), 0.84);
+  EXPECT_GT(IntersectionOverUnion(cpu_mask, edgetpu_mask), 0.95);
+}
+
 // Tests the corretness of an example U-Net model trained following the
 // tutorial on https://www.tensorflow.org/tutorials/images/segmentation.
-TEST(ModelCorrectnessTest, Keras_PostTrainingQuantization_UNet128MobilenetV2) {
+TEST_F(ModelCorrectnessEdgeTpuTest,
+       Keras_PostTrainingQuantization_UNet128MobilenetV2) {
   // The masks are basically labels for each pixel. Each pixel is given one
   // of three categories:
   // Class 1 : Pixel belonging to the pet.
@@ -161,7 +195,8 @@ TEST(ModelCorrectnessTest, Keras_PostTrainingQuantization_UNet128MobilenetV2) {
   EXPECT_GT(IntersectionOverUnion(cpu_mask, edgetpu_mask), 0.97);
 }
 
-TEST(ModelCorrectnessTest, Keras_PostTrainingQuantization_UNet256MobilenetV2) {
+TEST_F(ModelCorrectnessEdgeTpuTest,
+       Keras_PostTrainingQuantization_UNet256MobilenetV2) {
   const auto mask = ReadSegmentation("dog_segmentation_mask_256.bmp");
   const auto cpu_mask =
       RunSegmentation("keras_post_training_unet_mv2_256_quant.tflite",

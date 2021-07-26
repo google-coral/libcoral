@@ -1,6 +1,6 @@
 """Test case lists for classification model tests."""
 
-_COCOMPILED_MODEL_TEST_CASES = [
+COCOMPILED_CLASSIFICATION_MODEL_TEST_CASES = [
     {
         "model_path": "cocompilation/inception_v1_224_quant_cocompiled_with_3quant_edgetpu.tflite",
         "score_threshold": "0.3",
@@ -181,7 +181,7 @@ _CPU_EDGETPU_MODEL_PAIR_CASES = [
         "model_path": "efficientnet-edgetpu-L_quant",
         "effective_scale": "1.59488",
         "effective_means": "-78.73952,-78.73952,-78.73952",
-        "score_threshold": "0.51",
+        "score_threshold": "0.45",
         "expected_topk_label": "286",
     },
     {
@@ -203,15 +203,45 @@ _CPU_EDGETPU_MODEL_PAIR_CASES = [
     },
     {
         "model_path": "tfhub_tf2_resnet_50_imagenet_ptq",
-        "effective_scale": "1.26011",
-        "effective_means": "-27.7223,-27.7223,-27.7223",
-        "score_threshold": "0.6",
+        "score_threshold": "0.5",
         "expected_topk_label": "285",  # this model's object label starts from 0
+    },
+    {
+        "model_path": "tfhub_tf1_popular_us_products_ptq",
+        "image_path": "missvickie_potato_chips.bmp",
+        "score_threshold": "0.7",
+        "expected_topk_label": "77109",  # See https://www.gstatic.com/aihub/tfhub/labelmaps/popular_us_products_V1_labelmap.csv
+    },
+    {
+        "model_path": "tfhub_tf1_popular_us_products_ptq_fc_split",
+        "image_path": "missvickie_potato_chips.bmp",
+        "score_threshold": "0.7",
+        "expected_topk_label": "77109",  # See https://www.gstatic.com/aihub/tfhub/labelmaps/popular_us_products_V1_labelmap.csv
     },
 ]
 
+LSTM_MNIST_MODEL_TEST_CASES = [
+    {
+        "model_path": case.get("model_path") + model_suffix,
+        "image_path": case.get("image_path", "cat.bmp"),
+        "score_threshold": case.get("score_threshold"),
+        "expected_topk_label": case.get("expected_topk_label"),
+        "effective_scale": "1",
+        "effective_means": "0",
+    }
+    for model_suffix in [".tflite", "_edgetpu.tflite"]
+    for case in [
+        {
+            "model_path": "keras_lstm_mnist_ptq",
+            "image_path": "mnist_nine.bmp",
+            "score_threshold": "0.7",
+            "expected_topk_label": "9",
+        },
+    ]
+]
+
 # Expand CPU / Edge TPU model pairs to a full list of individually compiled models.
-_INDIVIDUALLY_COMPILED_MODEL_TEST_CASES = [
+INDIVIDUALLY_COMPILED_CLASSIFICATION_MODEL_TEST_CASES = [
     {
         "model_path": case.get("model_path") + model_suffix,
         "image_path": case.get("image_path", "cat.bmp"),
@@ -226,4 +256,4 @@ _INDIVIDUALLY_COMPILED_MODEL_TEST_CASES = [
     for case in _CPU_EDGETPU_MODEL_PAIR_CASES
 ]
 
-CLASSIFICATION_MODEL_TEST_CASES = _COCOMPILED_MODEL_TEST_CASES + _INDIVIDUALLY_COMPILED_MODEL_TEST_CASES
+CLASSIFICATION_MODEL_TEST_CASES = COCOMPILED_CLASSIFICATION_MODEL_TEST_CASES + INDIVIDUALLY_COMPILED_CLASSIFICATION_MODEL_TEST_CASES

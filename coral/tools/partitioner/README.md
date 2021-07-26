@@ -1,6 +1,6 @@
 # Profiling-based partitioner for the Edge TPU Compiler
 
-The `profiling_partioner` is a tool that segments an Edge TPU model for
+The `partition_with_profiling` tool segments an Edge TPU model for
 [model pipelining](https://coral.ai/docs/edgetpu/pipeline/), using a
 segmentation strategy that improves the overall throughput in pipelining.
 (Whereas, the [Edge TPU Compiler's `--num_segments`
@@ -18,15 +18,19 @@ re-segments the original model to distribute the execution time, and then it
 measures the latency again. It repeats this until all segments have roughly the
 same latency.
 
-**Note:** Before using the profiling-based partitioner, we suggest you first
-try segmenting your model as described in the guide to [pipeline a model
-with multiple Edge TPUs](https://coral.ai/docs/edgetpu/pipeline/). Then, only
-if the latency does not meet your demands, should you need to use this tool.
+**Note:** Before using the profiling-based partitioner, we suggest you first try
+segmenting your model as described in the guide to [pipeline a model with
+multiple Edge TPUs](https://coral.ai/docs/edgetpu/pipeline/). Then, only if the
+latency does not meet your demands, should you need to use this tool. That is
+unless your model has a non-trivial amount of operations that execute on the CPU
+and/or it has branches in the graph (such as in an SSD model)—in which case,
+only the profiling-based partitioner will accurately segment the model based on
+how much of the graph actually executes on the Edge TPU.
 
 ## Requirements
 
 Because this strategy requires executing the model on the Edge TPU and
-iteratively re-compiling the model, you must use the `profiling_partitioner`
+iteratively re-compiling the model, you must use `partition_with_profiling`
 on a system that both has access to the number of Edge TPUs required by your
 pipelined model **and** meets the [Edge TPU Compiler's system
 requirements](https://coral.ai/docs/edgetpu/compiler/#system-requirements).
@@ -41,22 +45,42 @@ partitioner.
 used by the profiling-based partitioner should use the same interface (PCIe or
 USB) as those in your production system, and the CPU should also be the same as
 your production system. If that's not possible, that's okay, but beware that
-there may be a difference between the throughput measured by the profile-based
+there may be a difference between the throughput measured by the profiling-based
 partitioner and the throughput on your production system—although the new
 segmented model should still provide an improved throughput on any system.
 
 ## Build the partitioner
 
+To compile the partitioner, you first need to
+[install Bazel](https://docs.bazel.build/versions/master/install.html) and
+(optionally, but we recommend) [Docker](https://docs.docker.com/install/).
+
+Then clone this repo with submodules and build the tools:
+
 ```
-git clone https://github.com/google-coral/libcoral.git
+git clone --recurse-submodules https://github.com/google-coral/libcoral.git
 
-DOCKER_CPUS=k8
+cd libcoral
 
-bash libcoral/script/build.sh
+make DOCKER_IMAGE="ubuntu:18.04" DOCKER_CPUS="k8" DOCKER_TARGETS="tools" docker-build
 ```
 
-The binary tool is output at
-`libcoral/out/k8/tools/partitioner/profiling_partitioner`.
+When finished (less than 2 minutes), the tool is output at
+`libcoral/out/k8/tools/partitioner/partition_with_profiling`.
+
+If you already have the repo and did not include submodules,
+you can add them with this command from the repo root:
+
+```
+git submodule init && git submodule update
+```
+
+You can also build all targets for all supported CPUs with this:
+
+```
+bash scripts/build.sh
+```
+
 
 ## Run the partitioner
 
@@ -66,7 +90,7 @@ system has the number of Edge TPUs specified for `num_segments`, and then
 run the partitioner as follows:
 
 ```
-./profiling_partition \
+./partition_with_profiling \
   --edgetpu_compiler_binary $PATH_TO_COMPILER \
   --model_path $PATH_TO_MODEL \
   --output_dir $OUT_DIR \
@@ -75,4 +99,7 @@ run the partitioner as follows:
 
 Running this tool takes longer than running the Edge TPU Compiler directly
 because it may re-segment the model many times.
+
+For detail on all flags, run `./partition_with_profiling --help` or see the
+[documentation here](/docs/edgetpu/compiler/#profiling-partitioner).
 

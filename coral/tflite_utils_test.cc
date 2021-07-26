@@ -1,3 +1,18 @@
+/* Copyright 2019-2021 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================*/
+
 #include "coral/tflite_utils.h"
 
 #include <chrono>  // NOLINT
@@ -43,24 +58,6 @@ constexpr char kFakeOp[] = "fake-op-double";
 const TfLiteRegistration kFakeOpRegistration = {FakeOpInit, FakeOpFree,
                                                 FakeOpPrepare, FakeOpEval};
 
-TEST(TfLiteUtilsEdgeTpuTest, MakeEdgeTpuInterpreter) {
-  auto model =
-      LoadModelOrDie(TestDataPath("mobilenet_v1_1.0_224_quant_edgetpu.tflite"));
-  auto tpu_context = GetEdgeTpuContextOrDie();
-  std::unique_ptr<tflite::Interpreter> interpreter;
-  EXPECT_EQ(MakeEdgeTpuInterpreter(*model, tpu_context.get(),
-                                   /*resolver=*/nullptr,
-                                   /*error_reporter=*/nullptr, &interpreter),
-            absl::OkStatus());
-}
-
-TEST(TfLiteUtilsEdgeTpuTest, ContainsEdgeTpuCustomOp) {
-  EXPECT_TRUE(ContainsEdgeTpuCustomOp(*LoadModelOrDie(
-      TestDataPath("mobilenet_v1_1.0_224_quant_edgetpu.tflite"))));
-  EXPECT_FALSE(ContainsEdgeTpuCustomOp(
-      *LoadModelOrDie(TestDataPath("mobilenet_v1_1.0_224_quant.tflite"))));
-}
-
 TEST(TfLiteUtilsCpuTest, TestRunInferenceFailure_ModelInvokeError) {
   tflite::ops::builtin::BuiltinOpResolver resolver;
   resolver.AddCustom(kFakeOp, &kFakeOpRegistration);
@@ -99,11 +96,29 @@ TEST(TfLiteUtilsCpuTest, InvokeWithMemBuffer) {
       absl::OkStatus());
 }
 
-TEST(TfLiteUtilsEdgeTpuTest, MobilenetV1FloatInputs) {
-  auto tpu_context = GetEdgeTpuContextOrDie();
+class TfLiteUtilsEdgeTpuTest : public EdgeTpuCacheTestBase {};
+
+TEST_F(TfLiteUtilsEdgeTpuTest, MakeEdgeTpuInterpreter) {
+  auto model =
+      LoadModelOrDie(TestDataPath("mobilenet_v1_1.0_224_quant_edgetpu.tflite"));
+  std::unique_ptr<tflite::Interpreter> interpreter;
+  EXPECT_EQ(MakeEdgeTpuInterpreter(*model, GetTpuContextCache(),
+                                   /*resolver=*/nullptr,
+                                   /*error_reporter=*/nullptr, &interpreter),
+            absl::OkStatus());
+}
+
+TEST_F(TfLiteUtilsEdgeTpuTest, ContainsEdgeTpuCustomOp) {
+  EXPECT_TRUE(ContainsEdgeTpuCustomOp(*LoadModelOrDie(
+      TestDataPath("mobilenet_v1_1.0_224_quant_edgetpu.tflite"))));
+  EXPECT_FALSE(ContainsEdgeTpuCustomOp(
+      *LoadModelOrDie(TestDataPath("mobilenet_v1_1.0_224_quant.tflite"))));
+}
+
+TEST_F(TfLiteUtilsEdgeTpuTest, MobilenetV1FloatInputs) {
   auto model = LoadModelOrDie(
       TestDataPath("mobilenet_v1_1.0_224_ptq_float_io_legacy_edgetpu.tflite"));
-  auto interpreter = MakeEdgeTpuInterpreterOrDie(*model, tpu_context.get());
+  auto interpreter = MakeEdgeTpuInterpreterOrDie(*model, GetTpuContextCache());
   ASSERT_EQ(interpreter->AllocateTensors(), kTfLiteOk);
 
   CopyResizedImage(TestDataPath("cat.bmp"), *interpreter->input_tensor(0));
@@ -119,11 +134,10 @@ TEST(TfLiteUtilsEdgeTpuTest, MobilenetV1FloatInputs) {
   EXPECT_GT(top.score, 0.9);
 }
 
-TEST(TfLiteUtilsEdgeTpuTest, MobilenetV1WithL2Norm) {
-  auto tpu_context = GetEdgeTpuContextOrDie();
+TEST_F(TfLiteUtilsEdgeTpuTest, MobilenetV1WithL2Norm) {
   auto model = LoadModelOrDie(
       TestDataPath("mobilenet_v1_1.0_224_l2norm_quant_edgetpu.tflite"));
-  auto interpreter = MakeEdgeTpuInterpreterOrDie(*model, tpu_context.get());
+  auto interpreter = MakeEdgeTpuInterpreterOrDie(*model, GetTpuContextCache());
   ASSERT_EQ(interpreter->AllocateTensors(), kTfLiteOk);
 
   CopyResizedImage(TestDataPath("cat.bmp"), *interpreter->input_tensor(0));
@@ -139,17 +153,16 @@ TEST(TfLiteUtilsEdgeTpuTest, MobilenetV1WithL2Norm) {
   EXPECT_GT(top.score, 0.9);
 }
 
-TEST(TfLiteUtilsEdgeTpuTest,
-     TwoInterpretersSharedEdgeTpuSingleThreadInference) {
-  auto tpu_context = GetEdgeTpuContextOrDie();
+TEST_F(TfLiteUtilsEdgeTpuTest,
+       TwoInterpretersSharedEdgeTpuSingleThreadInference) {
   auto model =
       LoadModelOrDie(TestDataPath("mobilenet_v1_1.0_224_quant_edgetpu.tflite"));
 
   // When there are multiple interpreters, they will share the Edge TPU context.
   // Ensure they can co-exist.
-  auto interpreter1 = MakeEdgeTpuInterpreterOrDie(*model, tpu_context.get());
+  auto interpreter1 = MakeEdgeTpuInterpreterOrDie(*model, GetTpuContextCache());
   ASSERT_EQ(interpreter1->AllocateTensors(), kTfLiteOk);
-  auto interpreter2 = MakeEdgeTpuInterpreterOrDie(*model, tpu_context.get());
+  auto interpreter2 = MakeEdgeTpuInterpreterOrDie(*model, GetTpuContextCache());
   ASSERT_EQ(interpreter2->AllocateTensors(), kTfLiteOk);
 
   for (int i = 0; i < 10; ++i) {
@@ -176,24 +189,27 @@ TEST(TfLiteUtilsEdgeTpuTest,
 // This test checks that when multiple interpreters in a multi-threaded
 // environment, share the same Edge TPU. Each thread can receive correct result
 // concurrently.
-TEST(TfLiteUtilsEdgeTpuTest, TwoInterpretersSharedEdgeTpuMultiThreadInference) {
+TEST_F(TfLiteUtilsEdgeTpuTest,
+       TwoInterpretersSharedEdgeTpuMultiThreadInference) {
   static constexpr int kNumInferences = 1;
 
-  auto tpu_context = GetEdgeTpuContextOrDie();
+  auto tpu_context = GetTpuContextCache();
   auto model1 = LoadModelOrDie(
       TestDataPath("mobilenet_v2_1.0_224_inat_bird_quant_edgetpu.tflite"));
   auto model2 = LoadModelOrDie(
       TestDataPath("mobilenet_v2_1.0_224_inat_insect_quant_edgetpu.tflite"));
+  const auto bird_image_path = TestDataPath("bird.bmp");
+  const auto dragonfly_image_path = TestDataPath("dragonfly.bmp");
 
   // `job_a` runs iNat_bird model on a bird image. Sleep randomly between 2~20
   // ms after each inference.
-  auto job_a = [&model1, &tpu_context]() {
+  auto job_a = [&model1, &tpu_context, bird_image_path]() {
     const auto tid = std::this_thread::get_id();
     LOG(INFO) << "Thread: " << tid << " created.";
 
-    auto interpreter = MakeEdgeTpuInterpreterOrDie(*model1, tpu_context.get());
+    auto interpreter = MakeEdgeTpuInterpreterOrDie(*model1, tpu_context);
     ASSERT_EQ(interpreter->AllocateTensors(), kTfLiteOk);
-    CopyResizedImage(TestDataPath("bird.bmp"), *interpreter->input_tensor(0));
+    CopyResizedImage(bird_image_path, *interpreter->input_tensor(0));
 
     std::mt19937 generator(123456);
     std::uniform_int_distribution<> sleep_time_dist(2, 20);
@@ -212,14 +228,13 @@ TEST(TfLiteUtilsEdgeTpuTest, TwoInterpretersSharedEdgeTpuMultiThreadInference) {
 
   // `job_b` runs iNat_insect model on a dragonfly image. Sleep randomly between
   // 1~10 ms. after each inference.
-  auto job_b = [&model2, &tpu_context]() {
+  auto job_b = [&model2, &tpu_context, dragonfly_image_path]() {
     const auto tid = std::this_thread::get_id();
     LOG(INFO) << "Thread: " << tid << " created.";
 
-    auto interpreter = MakeEdgeTpuInterpreterOrDie(*model2, tpu_context.get());
+    auto interpreter = MakeEdgeTpuInterpreterOrDie(*model2, tpu_context);
     ASSERT_EQ(interpreter->AllocateTensors(), kTfLiteOk);
-    CopyResizedImage(TestDataPath("dragonfly.bmp"),
-                     *interpreter->input_tensor(0));
+    CopyResizedImage(dragonfly_image_path, *interpreter->input_tensor(0));
 
     std::mt19937 generator(654321);
     std::uniform_int_distribution<> sleep_time_dist(1, 10);
@@ -244,7 +259,7 @@ TEST(TfLiteUtilsEdgeTpuTest, TwoInterpretersSharedEdgeTpuMultiThreadInference) {
   for (auto& thread : threads) thread.join();
 }
 
-TEST(TfliteUtilsEdgeTpuTest, GetEdgetpuContext) {
+TEST_F(TfLiteUtilsEdgeTpuTest, GetEdgetpuContext) {
   ASSERT_TRUE(GetEdgeTpuContext());
   ASSERT_TRUE(GetEdgeTpuContext(/*device=*/""));
   ASSERT_TRUE(GetEdgeTpuContext(/*device=*/":0"));
@@ -273,11 +288,10 @@ TEST(TfliteUtilsEdgeTpuTest, GetEdgetpuContext) {
   }
 }
 
-TEST(TfliteUtilsEdgeTpuTest, InvokeWithMemBufferSuccess) {
+TEST_F(TfLiteUtilsEdgeTpuTest, InvokeWithMemBufferSuccess) {
   auto model =
       LoadModelOrDie(TestDataPath("mobilenet_v1_1.0_224_quant_edgetpu.tflite"));
-  auto tpu_context = GetEdgeTpuContextOrDie();
-  auto interpreter = MakeEdgeTpuInterpreterOrDie(*model, tpu_context.get());
+  auto interpreter = MakeEdgeTpuInterpreterOrDie(*model, GetTpuContextCache());
   ASSERT_EQ(interpreter->AllocateTensors(), kTfLiteOk);
 
   std::vector<uint8_t> input(TensorSize(*interpreter->input_tensor(0)));

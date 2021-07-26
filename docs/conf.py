@@ -50,6 +50,7 @@ extensions = [
 # Breathe config
 breathe_projects = {'libcoral': './_build/xml'}
 breathe_default_project = 'libcoral'
+breathe_order_parameters_first = True
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.

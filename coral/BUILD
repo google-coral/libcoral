@@ -1,13 +1,27 @@
-load("//coral:model_benchmark_cases.bzl", "MODEL_BENCHMARK_CASES")
+# Copyright 2019-2021 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+load("//coral:model_benchmark_cases.bzl", "LSTM_MODEL_BENCHMARK_CASES", "MODEL_BENCHMARK_CASES")
 
 package(
     default_visibility = ["//visibility:public"],
 )
 
-licenses(["notice"])  # Apache 2.0
+licenses(["notice"])
 
 exports_files([
-    "classification_model_test_lib.cc",
+    "classification_model_test_boilerplate.cc",
     "models_benchmark_lib.cc",
 ])
 
@@ -80,6 +94,7 @@ cc_library(
         "@com_google_absl//absl/types:span",
         "@com_google_googletest//:gtest",
         "@glog",
+        "@libedgetpu//tflite/public:edgetpu",
         "@org_tensorflow//tensorflow/lite:builtin_op_data",
         "@org_tensorflow//tensorflow/lite:framework",
         "@org_tensorflow//tensorflow/lite/c:common",
@@ -97,7 +112,7 @@ cc_library(
         "tflite_utils.h",
     ],
     deps = [
-        "//coral/posenet:posenet_decoder_op",
+        "//coral/pose_estimation:posenet_decoder_op",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:optional",
@@ -153,14 +168,31 @@ cc_test(
 )
 
 cc_library(
+    name = "model_benchmark_reporter",
+    testonly = 1,
+    srcs = [
+        "model_benchmark_reporter.cc",
+    ],
+    hdrs = [
+        "model_benchmark_reporter.h",
+    ],
+    deps = [
+        "@com_github_google_benchmark//:benchmark",
+    ],
+)
+
+cc_library(
     name = "benchmark_main",
     testonly = 1,
     srcs = [
         "benchmark_main.cc",
     ],
     deps = [
+        ":model_benchmark_reporter",
         "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/flags:parse",
+        "@com_google_absl//absl/memory",
     ],
 )
 
@@ -194,7 +226,6 @@ cc_library(
 
 cc_test(
     name = "segmentation_models_test",
-    timeout = "long",
     srcs = [
         "segmentation_models_test.cc",
     ],
@@ -333,7 +364,7 @@ cc_test(
         "@glog",
     ],
     alwayslink = 1,
-) for case in MODEL_BENCHMARK_CASES]
+) for case in MODEL_BENCHMARK_CASES + LSTM_MODEL_BENCHMARK_CASES]
 
 cc_binary(
     name = "models_benchmark",
@@ -345,4 +376,32 @@ cc_binary(
     deps = [
         "//coral:benchmark_main_with_edgetpu",
     ] + [":%s_lib" % case.get("benchmark_name").lower() for case in MODEL_BENCHMARK_CASES],
+)
+
+# To run this test with USB connected Edge TPU, set
+# USB_ENABLE_BULK_DESCRIPTORS_FROM_DEVICE=1 and reset this variable afterwards.
+cc_binary(
+    name = "lstm_models_benchmark",
+    testonly = 1,
+    srcs = [],
+    data = [
+        "@test_data//:models",
+    ],
+    deps = [
+        "//coral:benchmark_main_with_edgetpu",
+    ] + [":%s_lib" % case.get("benchmark_name").lower() for case in LSTM_MODEL_BENCHMARK_CASES],
+)
+
+cc_binary(
+    name = "single_model_benchmark",
+    testonly = 1,
+    srcs = ["single_model_benchmark.cc"],
+    data = [],
+    deps = [
+        "//coral:benchmark_main_with_edgetpu",
+        "//coral:test_utils",
+        "@com_github_google_benchmark//:benchmark",
+        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/flags:parse",
+    ],
 )

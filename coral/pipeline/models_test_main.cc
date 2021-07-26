@@ -1,18 +1,34 @@
+/* Copyright 2019-2021 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================*/
+
 #include <memory>
 #include <random>
 #include <thread>  // NOLINT
 #include <vector>
 
+#include "absl/container/node_hash_map.h"
 #include "absl/flags/flag.h"
 #include "absl/flags/parse.h"
 #include "absl/memory/memory.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_split.h"
+#include "coral/error_reporter.h"
 #include "coral/pipeline/common.h"
 #include "coral/pipeline/internal/default_allocator.h"
 #include "coral/pipeline/pipelined_model_runner.h"
 #include "coral/pipeline/test_utils.h"
-#include "coral/pipeline/utils.h"
 #include "coral/test_utils.h"
 #include "coral/tflite_utils.h"
 #include "glog/logging.h"
@@ -27,50 +43,31 @@ ABSL_FLAG(std::string, model_names, "", "Comma separated list of model names");
 namespace coral {
 namespace {
 
-static constexpr char kPipelinedModelPrefix[] = "pipeline/";
-
-#ifdef __arm__
-static constexpr int kNumEdgeTpuAvailable = 2;
-#else
-static constexpr int kNumEdgeTpuAvailable = 4;
-#endif
-
-std::vector<int> NumSegments() {
-  // `result` looks like 2, 3, ..., kNumEdgeTpuAvailable.
-  std::vector<int> result(kNumEdgeTpuAvailable - 1);
-  std::generate(result.begin(), result.end(),
-                [n = 2]() mutable { return n++; });
-  return result;
+std::string GetModelSegmentBaseName(const std::string& model_base_name) {
+  static constexpr char kPipelinedModelPrefix[] = "pipeline/";
+  // It assumes that segments are under folder
+  // <holistic-model-folder>/pipeline/.
+  std::vector<std::string> fields = absl::StrSplit(model_base_name, '/');
+  fields.insert(fields.end() - 1, kPipelinedModelPrefix);
+  return absl::StrJoin(fields, "/");
 }
 
 // Tests all supported models with different number of segments.
 //
 // The test parameter is number of segments a model is partitioned into.
-class PipelinedModelRunnerModelsTest
-    : public ::testing::Test,
-      public ::testing::WithParamInterface<int> {
+class PipelinedModelsTest : public MultipleEdgeTpuCacheTestBase,
+                            public ::testing::WithParamInterface<int> {
  public:
   static void SetUpTestSuite() {
+    CHECK(!absl::GetFlag(FLAGS_model_names).empty());
+
     input_tensors_map_ =
         new std::unordered_map<std::string, std::vector<PipelineTensor>>();
 
     ref_results_map_ =
-        new std::unordered_map<std::string, std::vector<PipelineTensor>>();
+        new absl::node_hash_map<std::string, std::vector<PipelineTensor>>();
 
     ref_tensor_allocator_ = new internal::DefaultAllocator();
-
-    const auto& available_tpus =
-        edgetpu::EdgeTpuManager::GetSingleton()->EnumerateEdgeTpu();
-    CHECK_GE(available_tpus.size(), kNumEdgeTpuAvailable);
-    edgetpu_resources_ =
-        new std::vector<std::shared_ptr<edgetpu::EdgeTpuContext>>(
-            kNumEdgeTpuAvailable);
-    for (int i = 0; i < edgetpu_resources_->size(); ++i) {
-      (*edgetpu_resources_)[i] =
-          edgetpu::EdgeTpuManager::GetSingleton()->OpenDevice(
-              available_tpus[i].type, available_tpus[i].path);
-      LOG(INFO) << "Device " << available_tpus[i].path << " is selected.";
-    }
   }
 
   static void TearDownTestSuite() {
@@ -92,16 +89,18 @@ class PipelinedModelRunnerModelsTest
       delete ref_results_map_;
     }
 
-    delete edgetpu_resources_;
-
     delete ref_tensor_allocator_;
   }
 
   void SetUp() override {
     num_segments_ = GetParam();
 
+    tpu_contexts_ = GetTpuContextCache(num_segments_);
+    CHECK_EQ(tpu_contexts_.size(), num_segments_);
+
     model_list_ = absl::StrSplit(absl::GetFlag(FLAGS_model_names), ',');
     for (const auto& model_base_name : model_list_) {
+      CHECK(!model_base_name.empty());
       // Calculate reference results.
       if (ref_results_map_->find(model_base_name) == ref_results_map_->end()) {
         // Construct tflite interpreter.
@@ -109,8 +108,9 @@ class PipelinedModelRunnerModelsTest
             absl::StrCat(model_base_name, "_edgetpu.tflite");
         auto model = tflite::FlatBufferModel::BuildFromFile(
             TestDataPath(model_name).c_str());
+        EdgeTpuErrorReporter error_reporter;
         auto interpreter =
-            CreateInterpreter(*model, (*edgetpu_resources_)[0].get());
+            CreateInterpreter(*model, tpu_contexts_[0], &error_reporter);
 
         // Setup input tensors.
         const auto input_tensors =
@@ -123,12 +123,13 @@ class PipelinedModelRunnerModelsTest
                       input_tensors[i].bytes);
         }
 
-        CHECK(interpreter->Invoke() == kTfLiteOk);
+        CHECK(interpreter->Invoke() == kTfLiteOk) << error_reporter.message();
 
         // Record reference results.
         std::vector<PipelineTensor> ref_results(interpreter->outputs().size());
         for (int i = 0; i < interpreter->outputs().size(); ++i) {
           auto* tensor = interpreter->output_tensor(i);
+          ref_results[i].name = tensor->name;
           ref_results[i].buffer = ref_tensor_allocator_->Alloc(tensor->bytes);
           std::memcpy(CHECK_NOTNULL(ref_results[i].buffer->ptr()),
                       tensor->data.data, tensor->bytes);
@@ -141,63 +142,30 @@ class PipelinedModelRunnerModelsTest
   }
 
  protected:
-  std::vector<PipelineTensor> RunInferenceWithPipelinedModel(
-      const std::string& model_base_name) {
-    CHECK_GE(edgetpu_resources_->size(), num_segments_);
-
-    const auto& input_tensors = (*input_tensors_map_)[model_base_name];
-    std::vector<std::unique_ptr<tflite::FlatBufferModel>> models(num_segments_);
-    std::vector<std::unique_ptr<tflite::Interpreter>> managed_interpreters(
-        num_segments_);
-    std::vector<tflite::Interpreter*> interpreters(num_segments_);
-    const auto& segments_names = SegmentsNames(model_base_name, num_segments_);
-
-    // Construct PipelinedModelRunner.
-    for (int i = 0; i < num_segments_; ++i) {
-      models[i] = tflite::FlatBufferModel::BuildFromFile(
-          TestDataPath(absl::StrCat(kPipelinedModelPrefix, segments_names[i]))
-              .c_str());
-      managed_interpreters[i] =
-          CreateInterpreter(*(models[i]), (*edgetpu_resources_)[i].get());
-      interpreters[i] = managed_interpreters[i].get();
-    }
-    runner_ = absl::make_unique<PipelinedModelRunner>(interpreters);
-
-    // Run inference.
-    runner_->Push(CopyTensors(input_tensors));
-    std::vector<PipelineTensor> output_tensors;
-    runner_->Pop(&output_tensors);
-    return output_tensors;
-  }
-
+  // Checks that the actual results and expected results contain the same set of
+  // tensors. However, the tensors may be in different orders.
   void CheckSameTensors(const std::vector<PipelineTensor>& actual_tensors,
                         const std::vector<PipelineTensor>& expected_tensors) {
     ASSERT_EQ(actual_tensors.size(), expected_tensors.size());
-    for (int i = 0; i < expected_tensors.size(); ++i) {
-      EXPECT_EQ(actual_tensors[i].type, expected_tensors[i].type);
-      ASSERT_EQ(actual_tensors[i].bytes, expected_tensors[i].bytes);
-      const auto* actual = CHECK_NOTNULL(
-          reinterpret_cast<const uint8_t*>(actual_tensors[i].buffer->ptr()));
-      const auto* expected = CHECK_NOTNULL(
-          reinterpret_cast<const uint8_t*>(expected_tensors[i].buffer->ptr()));
-      for (int j = 0; j < expected_tensors[i].bytes; ++j) {
-        EXPECT_EQ(actual[j], expected[j]);
+    for (const auto& expected : expected_tensors) {
+      bool found = false;
+      for (const auto& actual : actual_tensors) {
+        if (actual.name == expected.name) {
+          found = true;
+          ASSERT_EQ(actual.type, expected.type);
+          ASSERT_EQ(actual.bytes, expected.bytes);
+          const auto* actual_data = CHECK_NOTNULL(
+              reinterpret_cast<const uint8_t*>(actual.buffer->ptr()));
+          const auto* expected_data = CHECK_NOTNULL(
+              reinterpret_cast<const uint8_t*>(expected.buffer->ptr()));
+          for (int j = 0; j < expected.bytes; ++j) {
+            EXPECT_EQ(actual_data[j], expected_data[j]) << "Element " << j;
+          }
+          break;
+        }
       }
+      ASSERT_TRUE(found) << "Can not find tensor in results: " << expected.name;
     }
-  }
-
-  std::vector<PipelineTensor> CopyTensors(
-      const std::vector<PipelineTensor>& tensors) {
-    std::vector<PipelineTensor> copy(tensors.size());
-    for (int i = 0; i < tensors.size(); ++i) {
-      copy[i].buffer =
-          runner_->GetInputTensorAllocator()->Alloc(tensors[i].bytes);
-      copy[i].bytes = tensors[i].bytes;
-      copy[i].type = tensors[i].type;
-      std::memcpy(CHECK_NOTNULL(copy[i].buffer->ptr()),
-                  CHECK_NOTNULL(tensors[i].buffer->ptr()), tensors[i].bytes);
-    }
-    return copy;
   }
 
   // List of models to test.
@@ -211,60 +179,57 @@ class PipelinedModelRunnerModelsTest
 
   // Key is `model_list_[i]`, value is output tensors from non partitioned
   // model, recorded here as reference results.
-  static std::unordered_map<std::string, std::vector<PipelineTensor>>*
+  static absl::node_hash_map<std::string, std::vector<PipelineTensor>>*
       ref_results_map_;
-
-  // Cache Edge TPUs to improve test performance.
-  static std::vector<std::shared_ptr<edgetpu::EdgeTpuContext>>*
-      edgetpu_resources_;
 
   static internal::DefaultAllocator* ref_tensor_allocator_;
 
+  std::vector<edgetpu::EdgeTpuContext*> tpu_contexts_;
   int num_segments_;
 
   std::unique_ptr<PipelinedModelRunner> runner_;
 };
 
 std::unordered_map<std::string, std::vector<PipelineTensor>>*
-    PipelinedModelRunnerModelsTest::input_tensors_map_ = nullptr;
-std::unordered_map<std::string, std::vector<PipelineTensor>>*
-    PipelinedModelRunnerModelsTest::ref_results_map_ = nullptr;
-std::vector<std::shared_ptr<edgetpu::EdgeTpuContext>>*
-    PipelinedModelRunnerModelsTest::edgetpu_resources_ = nullptr;
-internal::DefaultAllocator*
-    PipelinedModelRunnerModelsTest::ref_tensor_allocator_ = nullptr;
+    PipelinedModelsTest::input_tensors_map_ = nullptr;
+absl::node_hash_map<std::string, std::vector<PipelineTensor>>*
+    PipelinedModelsTest::ref_results_map_ = nullptr;
+internal::DefaultAllocator* PipelinedModelsTest::ref_tensor_allocator_ =
+    nullptr;
 
-TEST_P(PipelinedModelRunnerModelsTest, CheckInferenceResult) {
+TEST_P(PipelinedModelsTest, CheckInferenceResult) {
   for (const auto& model_base_name : model_list_) {
     LOG(INFO) << "Testing " << model_base_name << " with " << num_segments_
               << " segments.";
-    const auto& output_tensors =
-        RunInferenceWithPipelinedModel(model_base_name);
+    const auto& output_tensors = RunInferenceWithPipelinedModel(
+        GetModelSegmentBaseName(model_base_name), num_segments_,
+        (*input_tensors_map_)[model_base_name], tpu_contexts_, runner_);
     const auto& expected_tensors = (*ref_results_map_)[model_base_name];
     CheckSameTensors(output_tensors, expected_tensors);
-    FreeTensors(output_tensors, runner_->GetOutputTensorAllocator());
+    FreePipelineTensors(output_tensors, runner_->GetOutputTensorAllocator());
   }
 }
 
-TEST_P(PipelinedModelRunnerModelsTest, RepeatabilityTest) {
+TEST_P(PipelinedModelsTest, RepeatabilityTest) {
   constexpr int kNumRuns = 10;
   for (const auto& model_base_name : model_list_) {
     LOG(INFO) << "Testing " << model_base_name << " with " << num_segments_
               << " segments.";
-    const auto& expected_tensors =
-        RunInferenceWithPipelinedModel(model_base_name);
+    const auto& expected_tensors = RunInferenceWithPipelinedModel(
+        GetModelSegmentBaseName(model_base_name), num_segments_,
+        (*input_tensors_map_)[model_base_name], tpu_contexts_, runner_);
     for (int i = 0; i < kNumRuns; ++i) {
-      const auto& output_tensors =
-          RunInferenceWithPipelinedModel(model_base_name);
+      const auto& output_tensors = RunInferenceWithPipelinedModel(
+          GetModelSegmentBaseName(model_base_name), num_segments_,
+          (*input_tensors_map_)[model_base_name], tpu_contexts_, runner_);
       CheckSameTensors(output_tensors, expected_tensors);
-      FreeTensors(output_tensors, runner_->GetOutputTensorAllocator());
+      FreePipelineTensors(output_tensors, runner_->GetOutputTensorAllocator());
     }
-    FreeTensors(expected_tensors, runner_->GetOutputTensorAllocator());
+    FreePipelineTensors(expected_tensors, runner_->GetOutputTensorAllocator());
   }
 }
 
-INSTANTIATE_TEST_CASE_P(PipelinedModelRunnerModelsTest,
-                        PipelinedModelRunnerModelsTest,
+INSTANTIATE_TEST_CASE_P(PipelinedModelsTest, PipelinedModelsTest,
                         ::testing::ValuesIn(NumSegments()));
 
 }  // namespace

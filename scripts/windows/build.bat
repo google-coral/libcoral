@@ -1,3 +1,17 @@
+:: Copyright 2019-2021 Google LLC
+::
+:: Licensed under the Apache License, Version 2.0 (the "License");
+:: you may not use this file except in compliance with the License.
+:: You may obtain a copy of the License at
+::
+::     https://www.apache.org/licenses/LICENSE-2.0
+::
+:: Unless required by applicable law or agreed to in writing, software
+:: distributed under the License is distributed on an "AS IS" BASIS,
+:: WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+:: See the License for the specific language governing permissions and
+:: limitations under the License.
+
 echo off
 setlocal enabledelayedexpansion
 
@@ -8,16 +22,13 @@ if defined BAZEL_OUTPUT_BASE (
     set BAZEL_CMD=%BAZEL_CMD% --output_base=%BAZEL_OUTPUT_BASE%
 )
 
-set BAZEL_INFO_FLAGS=^
---experimental_repo_remote_exec
-
 set BAZEL_VS=C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools
 set BAZEL_VC=C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC
 call "%BAZEL_VC%\Auxiliary\Build\vcvars64.bat"
 type NUL >>BUILD
 
-for /f %%i in ('%BAZEL_CMD% info %BAZEL_INFO_FLAGS% output_base') do set "BAZEL_OUTPUT_BASE=%%i"
-for /f %%i in ('%BAZEL_CMD% info %BAZEL_INFO_FLAGS% output_path') do set "BAZEL_OUTPUT_PATH=%%i"
+for /f %%i in ('%BAZEL_CMD% info output_base') do set "BAZEL_OUTPUT_BASE=%%i"
+for /f %%i in ('%BAZEL_CMD% info output_path') do set "BAZEL_OUTPUT_PATH=%%i"
 for /f %%i in ('%PYTHON% -c "import sys;print(str(sys.version_info.major)+str(sys.version_info.minor))"') do set "PY3_VER=%%i"
 for /f %%i in ('%PYTHON% -c "import sys;print(sys.executable)"') do set "PYTHON_BIN_PATH=%%i"
 for /f %%i in ('%PYTHON% -c "import sys;print(sys.base_prefix)"') do set "PYTHON_LIB_PATH=%%i\Lib"
@@ -56,19 +67,14 @@ if defined ARG (
 for /f "tokens=3" %%i in ('type %ROOTDIR%\WORKSPACE ^| findstr /C:"TENSORFLOW_COMMIT ="') do set "TENSORFLOW_COMMIT=%%i"
 set BAZEL_BUILD_FLAGS= ^
 --compilation_mode=%COMPILATION_MODE% ^
---copt=/DNPY_NO_DEPRECATED_API=NPY_1_7_API_VERSION ^
 --copt=/D_HAS_DEPRECATED_RESULT_OF ^
---linkopt=/DEFAULTLIB:%BAZEL_OUTPUT_BASE%\external\libusb\root\MS64\dll\libusb-1.0.lib ^
---define darwinn_portable=1 ^
---experimental_repo_remote_exec ^
---copt=/std:c++latest ^
+--linkopt=/DEFAULTLIB:%BAZEL_OUTPUT_BASE%\external\libusb\root\VS2019\MS64\dll\libusb-1.0.lib ^
+--copt=-D__PRETTY_FUNCTION__=__FUNCSIG__ ^
 --embed_label=%TENSORFLOW_COMMIT% ^
 --stamp
-set BAZEL_QUERY_FLAGS=^
---experimental_repo_remote_exec
 
 rem Tests
-for /F "tokens=* USEBACKQ" %%g in (`%BAZEL_CMD% query %BAZEL_QUERY_FLAGS% "kind(cc_.*test, //coral/...) except //coral/dmabuf:all"`) do (set "tests=!tests! %%g")
+for /F "tokens=* USEBACKQ" %%g in (`%BAZEL_CMD% query "kind(cc_.*test, //coral/...) except //coral/dmabuf:all except //coral/tools/partitioner/... except //coral/experimental:profiling_based_partitioner_ondevice_test"`) do (set "tests=!tests! %%g")
 %BAZEL_CMD% build %BAZEL_BUILD_FLAGS% %tests% || goto exit
 for /F %%i in ('dir /a:-d /s /b %BAZEL_OUT_DIR%\*_test.exe') do (
     set out_dir="%%~dpi"
@@ -79,7 +85,7 @@ for /F %%i in ('dir /a:-d /s /b %BAZEL_OUT_DIR%\*_test.exe') do (
 )
 
 rem Benchmarks
-for /F "tokens=* USEBACKQ" %%g in (`%BAZEL_CMD% query %BAZEL_QUERY_FLAGS% "kind(cc_binary, //coral/...)"`) do (echo %%g | findstr benchmark >NUL && set "benchmarks=!benchmarks! %%g")
+for /F "tokens=* USEBACKQ" %%g in (`%BAZEL_CMD% query "kind(cc_binary, //coral/...)"`) do (echo %%g | findstr benchmark >NUL && set "benchmarks=!benchmarks! %%g")
 %BAZEL_CMD% build %BAZEL_BUILD_FLAGS% %benchmarks% || goto exit
 for /F %%i in ('dir /a:-d /s /b %BAZEL_OUT_DIR%\*_benchmark.exe') do (
     set out_dir="%%~dpi"

@@ -24,7 +24,8 @@ INPUT                  = ../libedgetpu/ \
 
 EXCLUDE                = ../coral/pipeline/internal/ \
                          ../coral/pipeline/test_utils.h \
-                         ../coral/learn/backprop/test_utils.h
+                         ../coral/learn/backprop/test_utils.h \
+                         ../coral/pipeline/detection_models_test_lib.h
 
 FILE_PATTERNS          = *.h
 RECURSIVE              = YES

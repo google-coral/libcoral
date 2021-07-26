@@ -1,8 +1,24 @@
-#ifndef EDGETPU_CPP_PIPELINE_PIPELINED_MODEL_RUNNER_H_
-#define EDGETPU_CPP_PIPELINE_PIPELINED_MODEL_RUNNER_H_
+/* Copyright 2019-2021 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================*/
+
+#ifndef LIBCORAL_CORAL_PIPELINE_PIPELINED_MODEL_RUNNER_H_
+#define LIBCORAL_CORAL_PIPELINE_PIPELINED_MODEL_RUNNER_H_
 
 #include <thread>  // NOLINT
 
+#include "absl/status/status.h"
 #include "absl/synchronization/mutex.h"
 #include "coral/pipeline/allocator.h"
 #include "coral/pipeline/common.h"
@@ -32,14 +48,14 @@ namespace coral {
 //    auto request_producer = [&runner, &total_num_requests]() {
 //      for (int i = 0; i < total_num_requests; ++i) {
 //        // Caller is responsible for allocating input tensors.
-//        runner.Push(CreateInputTensors(input_tensor_allocator));
+//        CHECK(runner.Push(CreateInputTensors(input_tensor_allocator)).ok());
 //      }
 //    };
 //
 //    auto result_consumer = [&runner, &total_num_requests]() {
 //      for (int i = 0; i < total_num_requests; ++i) {
 //        std::vector<Tensor> output_tensors;
-//        runner.Pop(&output_tensors);
+//        CHECK(runner.Pop(&output_tensors).ok());
 //        ConsumeOutputTensors(output_tensors);
 //        // Caller is responsible for deallocating output tensors.
 //        FreeTensors(output_tensor_allocator, output_tensors);
@@ -65,10 +81,10 @@ namespace coral {
 //    auto request_producer = [&runner]() {
 //      while (true) {
 //        // Caller is responsible for allocating input tensors.
-//        runner.Push(CreateInputTensors(input_tensor_allocator));
+//        CHECK(runner.Push(CreateInputTensors(input_tensor_allocator)).ok());
 //        if (ShouldStop()) {
 //          // Pushing special inputs to signal no more inputs will be pushed.
-//          runner.Push({});
+//          CHECK(runner.Push({}).ok());
 //          break;
 //        }
 //      }
@@ -76,7 +92,7 @@ namespace coral {
 //
 //    auto result_consumer = [&runner]() {
 //      std::vector<Tensor> output_tensors;
-//      while (runner.Pop(&output_tensors)) {
+//      while (runner.Pop(&output_tensors).ok() && !output_tensors.empty()) {
 //        ConsumeOutputTensors(output_tensors);
 //        // Caller is responsible for deallocating output tensors.
 //        FreeTensors(output_tensor_allocator, output_tensors);
@@ -153,7 +169,7 @@ class PipelinedModelRunner {
   // @param input_tensors A vector of input tensors, each wrapped as a
   // PipelineTensor. The order must match Interpreter::inputs() from the
   // first model segment.
-  // @return True if successful; false otherwise.
+  // @return absl::OkStatus if successful; absl::InternalError otherwise.
   //
   // **Note:**
   //   *  Caller is responsible for allocating memory for input tensors. By
@@ -169,7 +185,7 @@ class PipelinedModelRunner {
   //   *  Caller will get blocked if current input queue size is greater than
   //      input queue size threshold. By default, input queue size threshold is
   //      unlimited, i.e., call to Push() is non-blocking.
-  bool Push(const std::vector<PipelineTensor>& input_tensors);
+  absl::Status Push(const std::vector<PipelineTensor>& input_tensors);
 
   // Gets output tensors from the pipeline.
   //
@@ -177,8 +193,9 @@ class PipelinedModelRunner {
   // where outputs should be stored. Returned output tensors order matches
   // Interpreter::outputs() of the last model segment.
   //
-  // @return True when output is received, or false when special empty push is
-  // given to Push() and there is no more output tensors available.
+  // @return absl::OkStatus when output is received, or the pipeline input queue
+  // has already been stopped, and is empty, in which case `output_tensors` will
+  // be empty. Otherwise absl::InternalError.
   //
   // **Note:**
   //   *  Caller is responsible for deallocating memory for output tensors after
@@ -188,15 +205,18 @@ class PipelinedModelRunner {
   //
   //   *  Caller will get blocked if there is no output tensors available and no
   //      empty push is received.
-  bool Pop(std::vector<PipelineTensor>* output_tensors);
+  absl::Status Pop(std::vector<PipelineTensor>* output_tensors);
 
   // Returns performance stats for each segment.
   std::vector<SegmentStats> GetSegmentStats() const;
 
  private:
+  // Returns ok status or the first error of runners.
+  absl::Status GetRunnerStatus() const;
+
   // Returns true if pipeline was shutdown successfully, false if pipeline was
   // shutdown before.
-  bool ShutdownPipeline() ABSL_LOCKS_EXCLUDED(mu_);
+  absl::Status ShutdownPipeline() ABSL_LOCKS_EXCLUDED(mu_);
 
   std::vector<tflite::Interpreter*> segments_interpreters_;
 
@@ -241,4 +261,4 @@ class PipelinedModelRunner {
 
 }  // namespace coral
 
-#endif  // EDGETPU_CPP_PIPELINE_PIPELINED_MODEL_RUNNER_H_
+#endif  // LIBCORAL_CORAL_PIPELINE_PIPELINED_MODEL_RUNNER_H_

@@ -1,3 +1,18 @@
+/* Copyright 2019-2021 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================*/
+
 #include "coral/learn/imprinting_engine.h"
 
 #include <memory>
@@ -27,8 +42,8 @@ std::unique_ptr<ImprintingEngine> CreateTestEngineFromBuffer(
       ImprintingModel::CreateOrDie(*model->GetModel()), keep_classes);
 }
 
-// Test parameters indicates whether to run tpu version of tflite model.
-class ImprintingEngineTest : public ::testing::TestWithParam<bool> {
+// Test parameter is model suffix, '.tflite' or '_edgetpu.tflite'.
+class ImprintingEngineTest : public ModelTestBase {
  public:
   static std::unique_ptr<ImprintingEngine> CreateTestEngine(
       const std::string& model_name, bool keep_classes) {
@@ -51,12 +66,11 @@ class ImprintingEngineTest : public ::testing::TestWithParam<bool> {
   };
 
   static std::string ImagePath(const std::string& file_name) {
-    return absl::StrCat(TestDataPath("/imprinting/"), file_name);
+    return TestDataPath(absl::StrCat("imprinting/", file_name));
   }
 
   static std::string GenerateInputModelPath(const std::string& file_name) {
-    return TestDataPath(file_name +
-                        (GetParam() ? "_edgetpu.tflite" : ".tflite"));
+    return TestDataPath(file_name + GetParam());
   }
 
   // Checks that last 4 operators are Conv2d, Mul, Reshape, Softmax.
@@ -90,8 +104,8 @@ class ImprintingEngineTest : public ::testing::TestWithParam<bool> {
   void TestTrainedModel(const flatbuffers::FlatBufferBuilder& fbb,
                         const std::vector<TestDatapoint>& test_datapoints) {
     auto model = LoadModelOrDie(fbb);
-    auto tpu_context = GetEdgeTpuContextOrDie();
-    auto classifier = MakeEdgeTpuInterpreterOrDie(*model, tpu_context.get());
+    auto classifier =
+        MakeEdgeTpuInterpreterOrDie(*model, GetTpuContextIfNecessary());
     CHECK_EQ(classifier->AllocateTensors(), kTfLiteOk);
 
     for (const auto& test_datapoint : test_datapoints) {
@@ -110,8 +124,8 @@ class ImprintingEngineTest : public ::testing::TestWithParam<bool> {
 
     auto model = tflite::FlatBufferModel::BuildFromBuffer(
         reinterpret_cast<const char*>(buffer.data()), buffer.size());
-    auto tpu_context = GetEdgeTpuContextOrDie();
-    auto extractor = MakeEdgeTpuInterpreterOrDie(*model, tpu_context.get());
+    auto extractor =
+        MakeEdgeTpuInterpreterOrDie(*model, GetTpuContextIfNecessary());
     CHECK_EQ(extractor->AllocateTensors(), kTfLiteOk);
 
     for (auto& point : points) {
@@ -309,7 +323,10 @@ TEST_P(ImprintingEngineTest,
                           {"dog_test_0.bmp", 1, 0.99f}});
 }
 
-INSTANTIATE_TEST_CASE_P(ImprintingEngineTest, ImprintingEngineTest,
-                        ::testing::Values(false, true));
+INSTANTIATE_TEST_CASE_P(Cpu, ImprintingEngineTest,
+                        ::testing::Values(".tflite"));
+
+INSTANTIATE_TEST_CASE_P(EdgeTpu, ImprintingEngineTest,
+                        ::testing::Values("_edgetpu.tflite"));
 
 }  // namespace coral

@@ -1,3 +1,18 @@
+/* Copyright 2019-2021 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================*/
+
 #include "coral/tools/partitioner/utils.h"
 
 #include <memory>
@@ -233,7 +248,7 @@ TEST(Utils, BuildReverseGraph) {
   }
 }
 
-TEST(Utils, CalculateInDegree) {
+TEST(Utils, CalculateInAndOutDegree) {
   //      0
   //    /   \
   //   v     v
@@ -247,9 +262,9 @@ TEST(Utils, CalculateInDegree) {
   const Graph graph = {
       {2, 1}, {4}, {5}, {}, {3}, {3},
   };
-  const auto& result = CalculateInDegree(graph);
-  const std::vector<int> expected = {0, 1, 1, 2, 1, 1};
-  EXPECT_THAT(result, testing::ContainerEq(expected));
+  EXPECT_THAT(CalculateInDegree(graph), testing::ElementsAre(0, 1, 1, 2, 1, 1));
+  EXPECT_THAT(CalculateOutDegree(graph),
+              testing::ElementsAre(2, 1, 1, 0, 1, 1));
 }
 
 TEST(Utils, TopologicalSort) {
@@ -264,7 +279,7 @@ TEST(Utils, TopologicalSort) {
       {2, 1, 3}, {3}, {5}, {}, {5}, {},
   };
   const auto& result = TopologicalSort(graph);
-  const std::vector<int> expected = {0, 4, 2, 1, 5, 3};
+  const std::vector<int> expected = {4, 0, 1, 2, 3, 5};
   EXPECT_THAT(result, testing::ContainerEq(expected));
 }
 
@@ -415,13 +430,13 @@ TEST(Utils, LocateSubgraphNodes_HardCase_SingleOpSubgraph) {
   const int num_nodes = 6;
   const std::vector<int> num_nodes_per_subgraph = {2, 1, 3};
 
-  const auto& subgraph_nodes_list =
-      LocateSubgraphNodes(edge_list, num_nodes, num_nodes_per_subgraph);
+  const auto& subgraph_nodes_list = LocateSubgraphNodes(
+      edge_list, num_nodes, {0, 2, 4, 1, 3, 5}, num_nodes_per_subgraph);
 
   std::vector<std::vector<int>> expected_all_nodes = {
-      {0, 1},
-      {2},
-      {3, 4, 5},
+      {0, 2},
+      {4},
+      {1, 3, 5},
   };
 
   ASSERT_EQ(subgraph_nodes_list.size(), 3);
@@ -457,12 +472,12 @@ TEST(Utils, LocateSubgraphNodes_MultipleChildOps) {
   const int num_nodes = 6;
   const std::vector<int> num_nodes_per_subgraph = {2, 4};
 
-  const auto& subgraph_nodes_list =
-      LocateSubgraphNodes(edge_list, num_nodes, num_nodes_per_subgraph);
+  const auto& subgraph_nodes_list = LocateSubgraphNodes(
+      edge_list, num_nodes, {0, 1, 4, 3, 2, 5}, num_nodes_per_subgraph);
 
   std::vector<std::vector<int>> expected_all_nodes = {
       {0, 1},
-      {2, 3, 4, 5},
+      {4, 3, 2, 5},
   };
 
   ASSERT_EQ(subgraph_nodes_list.size(), 2);

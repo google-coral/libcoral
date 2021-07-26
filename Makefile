@@ -12,19 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 SHELL := /bin/bash
-PYTHON3 ?= python3
 MAKEFILE_DIR := $(realpath $(dir $(lastword $(MAKEFILE_LIST))))
-PY3_VER ?= $(shell $(PYTHON3) -c "import sys;print('%d%d' % sys.version_info[:2])")
 OS := $(shell uname -s)
 
 # Allowed CPU values: k8, armv7a, aarch64, darwin
 ifeq ($(OS),Linux)
 CPU ?= k8
+TEST_FILTER ?= cat
 else ifeq ($(OS),Darwin)
 CPU ?= darwin
+TEST_FILTER ?= grep -v dmabuf
 else
 $(error $(OS) is not supported)
 endif
+
 ifeq ($(filter $(CPU),k8 armv7a aarch64 darwin),)
 $(error CPU must be k8, armv7a, aarch64, or darwin)
 endif
@@ -32,43 +33,18 @@ endif
 # Allowed COMPILATION_MODE values: opt, dbg, fastbuild
 COMPILATION_MODE ?= opt
 ifeq ($(filter $(COMPILATION_MODE),opt dbg fastbuild),)
-$(error COMPILATION_MODE must be opt, dbg or fastbuild)
+$(error COMPILATION_MODE must be opt, dbg, or fastbuild)
 endif
 
 BAZEL_OUT_DIR :=  $(MAKEFILE_DIR)/bazel-out/$(CPU)-$(COMPILATION_MODE)/bin
-COMMON_BAZEL_BUILD_FLAGS_Linux := --crosstool_top=@crosstool//:toolchains \
-                                  --compiler=gcc
-COMMON_BAZEL_BUILD_FLAGS_Darwin :=
-COMMON_BAZEL_BUILD_FLAGS := --compilation_mode=$(COMPILATION_MODE) \
-                            --copt=-DNPY_NO_DEPRECATED_API=NPY_1_7_API_VERSION \
-                            --verbose_failures \
-                            --sandbox_debug \
-                            --subcommands \
-                            --define PY3_VER=$(PY3_VER) \
-                            --action_env PYTHON_BIN_PATH=$(shell which $(PYTHON3)) \
-                            --cpu=$(CPU) \
-                            --define darwinn_portable=1 \
-                            --experimental_repo_remote_exec \
-                            $(COMMON_BAZEL_BUILD_FLAGS_$(OS))
-
-BAZEL_BUILD_FLAGS_Linux := --linkopt=-l:libusb-1.0.so
-BAZEL_BUILD_FLAGS_Darwin := --linkopt=-L/opt/local/lib \
-                            --linkopt=-lusb-1.0
-
-ifeq ($(COMPILATION_MODE), opt)
-BAZEL_BUILD_FLAGS_Linux += --linkopt=-Wl,--strip-all
-endif
+BAZEL_BUILD_FLAGS := --compilation_mode=$(COMPILATION_MODE) \
+                     --cpu=$(CPU)
 
 ifeq ($(CPU),aarch64)
-BAZEL_BUILD_FLAGS_Linux += --copt=-ffp-contract=off
+BAZEL_BUILD_FLAGS += --copt=-ffp-contract=off
 else ifeq ($(CPU),armv7a)
-BAZEL_BUILD_FLAGS_Linux += --copt=-ffp-contract=off
+BAZEL_BUILD_FLAGS += --copt=-ffp-contract=off
 endif
-
-BAZEL_QUERY_FLAGS := --experimental_repo_remote_exec
-
-BAZEL_BUILD_FLAGS := $(COMMON_BAZEL_BUILD_FLAGS) \
-                     $(BAZEL_BUILD_FLAGS_$(OS))
 
 # $(1): pattern, $(2) destination directory
 define copy_out_files
@@ -80,10 +56,10 @@ done; \
 popd
 endef
 
-EXAMPLES_OUT_DIR       := $(MAKEFILE_DIR)/out/$(CPU)/examples
-TOOLS_OUT_DIR          := $(MAKEFILE_DIR)/out/$(CPU)/tools
-TESTS_OUT_DIR          := $(MAKEFILE_DIR)/out/$(CPU)/tests
-BENCHMARKS_OUT_DIR     := $(MAKEFILE_DIR)/out/$(CPU)/benchmarks
+EXAMPLES_OUT_DIR   := $(MAKEFILE_DIR)/out/$(CPU)/examples
+TOOLS_OUT_DIR      := $(MAKEFILE_DIR)/out/$(CPU)/tools
+TESTS_OUT_DIR      := $(MAKEFILE_DIR)/out/$(CPU)/tests
+BENCHMARKS_OUT_DIR := $(MAKEFILE_DIR)/out/$(CPU)/benchmarks
 
 .PHONY: all \
         tests \
@@ -96,25 +72,27 @@ BENCHMARKS_OUT_DIR     := $(MAKEFILE_DIR)/out/$(CPU)/benchmarks
 all: tests benchmarks tools examples
 
 tests:
-	bazel build $(BAZEL_BUILD_FLAGS) $(shell bazel query $(BAZEL_QUERY_FLAGS) 'kind(cc_.*test, //coral/...)')
+	bazel build $(BAZEL_BUILD_FLAGS) $(shell bazel query 'kind(cc_.*test, //coral/...)' | $(TEST_FILTER))
 	$(call copy_out_files,"*_test",$(TESTS_OUT_DIR))
 
 benchmarks:
-	bazel build $(BAZEL_BUILD_FLAGS) $(shell bazel query $(BAZEL_QUERY_FLAGS) 'kind(cc_binary, //coral/...)' | grep benchmark)
+	bazel build $(BAZEL_BUILD_FLAGS) $(shell bazel query 'kind(cc_binary, //coral/...)' | grep benchmark)
 	$(call copy_out_files,"*_benchmark",$(BENCHMARKS_OUT_DIR))
 
 tools:
-	bazel build $(BAZEL_BUILD_FLAGS) //coral/tools:join_tflite_models \
+	bazel build $(BAZEL_BUILD_FLAGS) //coral/tools:append_recurrent_links \
+	                                 //coral/tools:join_tflite_models \
 	                                 //coral/tools:multiple_tpus_performance_analysis \
 	                                 //coral/tools:model_pipelining_performance_analysis \
-	                                 //coral/tools/partitioner:profiling_partitioner
+	                                 //coral/tools/partitioner:partition_with_profiling
 	mkdir -p $(TOOLS_OUT_DIR)
-	cp -f $(BAZEL_OUT_DIR)/coral/tools/join_tflite_models \
+	cp -f $(BAZEL_OUT_DIR)/coral/tools/append_recurrent_links \
+	      $(BAZEL_OUT_DIR)/coral/tools/join_tflite_models \
 	      $(BAZEL_OUT_DIR)/coral/tools/multiple_tpus_performance_analysis \
 	      $(BAZEL_OUT_DIR)/coral/tools/model_pipelining_performance_analysis \
 	      $(TOOLS_OUT_DIR)
 	mkdir -p $(TOOLS_OUT_DIR)/partitioner
-	cp -f $(BAZEL_OUT_DIR)/coral/tools/partitioner/profiling_partitioner \
+	cp -f $(BAZEL_OUT_DIR)/coral/tools/partitioner/partition_with_profiling \
 	      $(TOOLS_OUT_DIR)/partitioner
 
 examples:
@@ -143,14 +121,10 @@ DOCKER_TAG_BASE := coral-edgetpu
 include $(MAKEFILE_DIR)/docker/docker.mk
 
 help:
-	@echo "make all               - Build all C++ code"
-	@echo "make tests             - Build all C++ tests"
-	@echo "make benchmarks        - Build all C++ benchmarks"
-	@echo "make tools             - Build all C++ tools"
-	@echo "make examples          - Build all C++ examples"
-	@echo "make clean             - Remove generated files"
-	@echo "make help              - Print help message"
-
-# Debugging util, print variable names. For example, `make print-ROOT_DIR`.
-print-%:
-	@echo $* = $($*)
+	@echo "make all        - Build all C++ code"
+	@echo "make tests      - Build all C++ tests"
+	@echo "make benchmarks - Build all C++ benchmarks"
+	@echo "make tools      - Build all C++ tools"
+	@echo "make examples   - Build all C++ examples"
+	@echo "make clean      - Remove generated files"
+	@echo "make help       - Print help message"

@@ -37,7 +37,7 @@ makeSphinxWeb() {
   rm ${WEB_DIR}/index.md ${WEB_DIR}/search.md
   mv ${WEB_DIR}/genindex.md ${WEB_DIR}/index.md
   # Some custom tweaks to the output:
-  python postprocess.py -f ${WEB_DIR}/
+  python3 postprocess.py -f ${WEB_DIR}/
   echo "All done. Web pages are in ${WEB_DIR}."
 }
 

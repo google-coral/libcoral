@@ -1,4 +1,20 @@
+# Copyright 2019-2021 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 package(default_visibility = ["//visibility:public"])
+
+licenses(["notice"])
 
 cc_library(
     name = "strategy",
@@ -6,7 +22,6 @@ cc_library(
     hdrs = ["strategy.h"],
     deps = [
         ":utils",
-        "@com_google_absl//absl/container:flat_hash_set",
         "@glog",
         "@org_tensorflow//tensorflow/lite/schema:schema_fbs",
     ],
@@ -26,9 +41,9 @@ cc_binary(
 )
 
 cc_library(
-    name = "partitioner",
-    srcs = ["partitioner.cc"],
-    hdrs = ["partitioner.h"],
+    name = "parameter_count_based_partitioner",
+    srcs = ["parameter_count_based_partitioner.cc"],
+    hdrs = ["parameter_count_based_partitioner.h"],
     deps = [
         ":strategy",
         ":utils",
@@ -43,14 +58,14 @@ cc_library(
 )
 
 cc_test(
-    name = "partitioner_test",
-    srcs = ["partitioner_test.cc"],
+    name = "parameter_count_based_partitioner_test",
+    srcs = ["parameter_count_based_partitioner_test.cc"],
     data = [
         "@test_data//:models",
     ],
     linkstatic = 1,
     deps = [
-        ":partitioner",
+        ":parameter_count_based_partitioner",
         ":utils",
         "//coral:test_main_with_edgetpu",
         "//coral:test_utils",
@@ -58,6 +73,7 @@ cc_test(
         "@com_google_absl//absl/flags:parse",
         "@com_google_absl//absl/memory",
         "@com_google_googletest//:gtest",
+        "@org_tensorflow//tensorflow/lite/schema:schema_fbs",
     ],
 )
 
@@ -98,10 +114,10 @@ cc_test(
 )
 
 cc_library(
-    name = "profiling_partition_util",
+    name = "profiling_based_partitioner",
     testonly = 1,
-    srcs = ["profiling_partition_util.cc"],
-    hdrs = ["profiling_partition_util.h"],
+    srcs = ["profiling_based_partitioner.cc"],
+    hdrs = ["profiling_based_partitioner.h"],
     deps = [
         ":strategy",
         ":utils",
@@ -115,11 +131,11 @@ cc_library(
 )
 
 cc_binary(
-    name = "profiling_partitioner",
+    name = "partition_with_profiling",
     testonly = 1,
-    srcs = ["profiling_partitioner.cc"],
+    srcs = ["partition_with_profiling.cc"],
     deps = [
-        ":profiling_partition_util",
+        ":profiling_based_partitioner",
         ":strategy",
         ":utils",
         "//coral/tools:model_pipelining_benchmark_util",
@@ -132,14 +148,14 @@ cc_binary(
 )
 
 cc_test(
-    name = "profiling_partition_util_test",
-    srcs = ["profiling_partition_util_test.cc"],
+    name = "profiling_based_partitioner_test",
+    srcs = ["profiling_based_partitioner_test.cc"],
     data = [
         "@test_data//:models",
     ],
     linkstatic = 1,
     deps = [
-        ":profiling_partition_util",
+        ":profiling_based_partitioner",
         "//coral:test_main_with_edgetpu",
         "//coral:test_utils",
         "@com_google_absl//absl/flags:parse",
@@ -147,5 +163,37 @@ cc_test(
         "@com_google_absl//absl/strings",
         "@com_google_googletest//:gtest",
         "@glog",
+    ],
+)
+
+cc_library(
+    name = "profiling_based_partitioner_ondevice_lib",
+    testonly = 1,
+    srcs = ["profiling_based_partitioner_ondevice_lib.cc"],
+    hdrs = ["profiling_based_partitioner_ondevice_lib.h"],
+    deps = [
+        ":profiling_based_partitioner",
+        "//coral:test_utils",
+        "//coral/pipeline:test_utils",
+        "//coral/tools:model_pipelining_benchmark_util",
+        "@com_google_absl//absl/flags:flag",
+        "@com_google_absl//absl/flags:parse",
+        "@com_google_googletest//:gtest",
+        "@glog",
+    ],
+)
+
+cc_test(
+    name = "profiling_based_partitioner_ondevice_test",
+    size = "large",
+    srcs = ["profiling_based_partitioner_ondevice_test.cc"],
+    data = [
+        "@test_data//:models",
+    ],
+    linkstatic = 1,
+    deps = [
+        ":profiling_based_partitioner_ondevice_lib",
+        "//coral:test_main_with_edgetpu",
+        "@com_google_googletest//:gtest",
     ],
 )

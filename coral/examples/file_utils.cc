@@ -1,3 +1,18 @@
+/* Copyright 2019-2021 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================*/
+
 #include "coral/examples/file_utils.h"
 
 #include <cstdio>
@@ -13,23 +28,24 @@ namespace coral {
 
 std::unordered_map<int, std::string> ReadLabelFile(
     const std::string& file_path) {
-  std::unordered_map<int, std::string> labels;
   std::ifstream file(file_path.c_str());
   CHECK(file) << "Cannot open " << file_path;
 
+  std::unordered_map<int, std::string> labels;
+  int counter = 0;
   std::string line;
   while (std::getline(file, line)) {
     absl::RemoveExtraAsciiWhitespace(&line);
     std::vector<std::string> fields =
         absl::StrSplit(line, absl::MaxSplits(' ', 1));
-    if (fields.size() == 2) {
-      int label_id;
-      CHECK(absl::SimpleAtoi(fields[0], &label_id));
-      const std::string& label_name = fields[1];
-      labels[label_id] = label_name;
+    int id;
+    if (fields.size() == 2 && absl::SimpleAtoi(fields[0], &id)) {
+      labels.insert({id, fields[1]});
+    } else {
+      labels.insert({counter, line});
     }
+    ++counter;
   }
-
   return labels;
 }
 

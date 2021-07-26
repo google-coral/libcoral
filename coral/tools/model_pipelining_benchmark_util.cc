@@ -1,10 +1,25 @@
+/* Copyright 2019-2021 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================*/
+
 // Utils to analyze model pipelining performance.
 #include "coral/tools/model_pipelining_benchmark_util.h"
 
+#include "coral/error_reporter.h"
 #include "coral/pipeline/common.h"
 #include "coral/pipeline/pipelined_model_runner.h"
 #include "coral/pipeline/test_utils.h"
-#include "coral/pipeline/utils.h"
 #include "coral/test_utils.h"
 #include "coral/tflite_utils.h"
 #include "glog/logging.h"
@@ -65,22 +80,25 @@ PerfStats BenchmarkPartitionedModel(
   std::vector<std::unique_ptr<tflite::Interpreter>> managed_interpreters(
       num_segments);
   std::vector<tflite::Interpreter*> interpreters(num_segments);
+  std::vector<EdgeTpuErrorReporter> error_reporters(num_segments);
   std::vector<std::unique_ptr<tflite::FlatBufferModel>> models(num_segments);
   for (int i = 0; i < num_segments; ++i) {
     models[i] =
         tflite::FlatBufferModel::BuildFromFile(model_segments_paths[i].c_str());
-    managed_interpreters[i] =
-        coral::CreateInterpreter(*(models[i]), (*edgetpu_contexts)[i].get());
+    managed_interpreters[i] = coral::CreateInterpreter(
+        *(models[i]), (*edgetpu_contexts)[i].get(), &error_reporters[i]);
     interpreters[i] = managed_interpreters[i].get();
   }
 
   // Parameter Caching before pipelining starts running.
   for (int i = 0; i < num_segments; ++i) {
     for (const int input_tensor_index : interpreters[i]->inputs()) {
-      FillRandomInt(MutableTensorData<uint8_t>(
-          *interpreters[i]->tensor(input_tensor_index)));
+      auto input_data = MutableTensorData<uint8_t>(
+          *interpreters[i]->tensor(input_tensor_index));
+      std::memset(input_data.data(), 0, input_data.size());
     }
-    interpreters[i]->Invoke();
+    CHECK_EQ(interpreters[i]->Invoke(), kTfLiteOk)
+        << error_reporters[i].message();
   }
 
   auto runner = absl::make_unique<PipelinedModelRunner>(interpreters);
@@ -97,9 +115,9 @@ PerfStats BenchmarkPartitionedModel(
     const auto& start_time = std::chrono::steady_clock::now();
     const auto& num_inferences = input_requests.size();
     for (int i = 0; i < num_inferences; ++i) {
-      runner->Push(input_requests[i]);
+      CHECK(runner->Push(input_requests[i]).ok());
     }
-    runner->Push({});
+    CHECK(runner->Push({}).ok());
     std::chrono::duration<int64_t, std::nano> time_span =
         std::chrono::steady_clock::now() - start_time;
     LOG(INFO) << "Producer thread per request latency (in ns): "
@@ -109,8 +127,8 @@ PerfStats BenchmarkPartitionedModel(
   auto request_consumer = [&runner, &num_inferences]() {
     const auto& start_time = std::chrono::steady_clock::now();
     std::vector<PipelineTensor> output_tensors;
-    while (runner->Pop(&output_tensors)) {
-      FreeTensors(output_tensors, runner->GetOutputTensorAllocator());
+    while (runner->Pop(&output_tensors).ok() && !output_tensors.empty()) {
+      FreePipelineTensors(output_tensors, runner->GetOutputTensorAllocator());
       output_tensors.clear();
     }
     LOG(INFO) << "All tensors consumed";

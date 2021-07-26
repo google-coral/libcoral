@@ -16,6 +16,7 @@
 
 import argparse
 import os
+import re
 
 from bs4 import BeautifulSoup
 
@@ -61,6 +62,22 @@ def remove_coral(soup):
   return soup
 
 
+def remove_subclass_string(soup):
+  """Removes description of internal subclass names."""
+  paras = soup.find_all('p', string=re.compile(r'^Subclassed by'))
+  for p in paras:
+    p.extract()
+  return soup
+
+
+def style_source_link(soup):
+  """Adds class to allow styling of the source links."""
+  paras = soup.find_all('p', string=re.compile(r'source]$'))
+  for p in paras:
+    p['class'] = 'cpp-source-link'
+  return soup
+
+
 def clean_index(soup):
   """Removes the HTML table from the index page, leaving just lists of APIs."""
   uls = soup.find_all('ul')
@@ -79,6 +96,8 @@ def process(file):
   soup = relocate_h2id(soup)
   soup = clean_pre(soup)
   soup = remove_coral(soup)
+  soup = remove_subclass_string(soup)
+  soup = style_source_link(soup)
   if os.path.split(file)[1] == 'index.md':
     soup = clean_index(soup)
   with open(file, 'w') as output:

@@ -16,7 +16,6 @@ RUN apt-get update \
       sudo \
       debhelper \
       python \
-      $(grep 'Focal Fossa' /etc/os-release > /dev/null || echo python-future) \
       python3-all \
       python3-numpy \
       python3-setuptools \
@@ -35,16 +34,25 @@ RUN apt-get update \
       zlib1g-dev:armhf \
       zlib1g-dev:arm64 \
       pkg-config \
+      p7zip-full \
       zip \
       unzip \
       curl \
       wget \
       git \
-      vim
+      vim \
+      mc \
+      software-properties-common
+
+# Bionic Beaver == Ubuntu 18.04
+RUN if grep 'Bionic Beaver' /etc/os-release > /dev/null; then \
+      add-apt-repository ppa:ubuntu-toolchain-r/test \
+        && DEBIAN_FRONTEND=noninteractive apt-get install -y gcc-9 g++-9; \
+    fi
 
 # On older Ubuntu these packages can't be installed in a multi-arch fashion.
 # Instead we download the debs and extract them for build time linking.
-RUN mkdir /debs && chmod 0777 /debs && cd /debs && apt-get update && apt-get download \
+RUN mkdir /debs && chmod a=rwx /debs && cd /debs && apt-get update && apt-get download \
   libglib2.0-0 \
   libglib2.0-0:armhf \
   libglib2.0-0:arm64 \
@@ -70,7 +78,7 @@ RUN git clone https://github.com/raspberrypi/tools.git && \
     cd tools && \
     git reset --hard 4a335520900ce55e251ac4f420f52bf0b2ab6b1f
 
-ARG BAZEL_VERSION=3.2.0
+ARG BAZEL_VERSION=4.0.0
 RUN wget -O /bazel https://github.com/bazelbuild/bazel/releases/download/${BAZEL_VERSION}/bazel-${BAZEL_VERSION}-installer-linux-x86_64.sh && \
     bash /bazel && \
     rm -f /bazel

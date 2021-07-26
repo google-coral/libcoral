@@ -19,7 +19,7 @@ source ~/.my_venvs/coraldocs/bin/activate
 sudo apt-get install doxygen
 
 # Install other dependencies:
-pip install -r requirements.txt
+python3 -m pip install -r requirements.txt
 
 # Build the docs:
 bash makedocs.sh

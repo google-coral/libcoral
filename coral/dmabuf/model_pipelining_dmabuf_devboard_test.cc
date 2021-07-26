@@ -1,3 +1,18 @@
+/* Copyright 2019-2021 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================*/
+
 // Tests DMA buffer support for model pipelining.
 //
 // It assumes the following test data inside `FLAGS_test_data_dir` folder
@@ -13,6 +28,7 @@
 
 #include "absl/strings/str_cat.h"
 #include "absl/strings/substitute.h"
+#include "coral/error_reporter.h"
 #include "coral/pipeline/allocator.h"
 #include "coral/pipeline/pipelined_model_runner.h"
 #include "coral/pipeline/test_utils.h"
@@ -159,14 +175,15 @@ GstFlowReturn PipelinedModelOnNewSample(GstElement *sink,
   PipelineTensor input_buffer;
   const TfLiteTensor *input_tensor =
       state->first_segment_interpreter->input_tensor(0);
+  input_buffer.name = input_tensor->name;
   input_buffer.buffer =
       state->runner->GetInputTensorAllocator()->Alloc(input_tensor->bytes);
   input_buffer.type = input_tensor->type;
   input_buffer.bytes = input_tensor->bytes;
-  state->runner->Push({input_buffer});
+  CHECK(state->runner->Push({input_buffer}).ok());
 
   if (state->seen_frames >= kMinFrames) {
-    state->runner->Push({});
+    CHECK(state->runner->Push({}).ok());
   }
 
   ret = state->seen_frames >= kMinFrames ? GST_FLOW_EOS : GST_FLOW_OK;
@@ -241,7 +258,9 @@ void GetRefModelResult(const std::string &model_path,
           edgetpu::DeviceType::kApexPci));
   auto model =
       CHECK_NOTNULL(tflite::FlatBufferModel::BuildFromFile(model_path.c_str()));
-  auto interpreter = CHECK_NOTNULL(CreateInterpreter(*model, context.get()));
+  EdgeTpuErrorReporter error_reporter;
+  auto interpreter =
+      CHECK_NOTNULL(CreateInterpreter(*model, context.get(), &error_reporter));
 
   const TfLiteTensor *input_tensor =
       CHECK_NOTNULL(interpreter->input_tensor(0));
@@ -296,12 +315,13 @@ class ModelPipeliningDmaBufDevboardTest : public ::testing::Test {
     std::vector<std::unique_ptr<tflite::Interpreter>> managed_interpreters(
         num_segments);
     std::vector<tflite::Interpreter *> interpreters(num_segments);
+    std::vector<EdgeTpuErrorReporter> error_reporters(num_segments);
     std::vector<std::unique_ptr<tflite::FlatBufferModel>> models(num_segments);
     for (int i = 0; i < num_segments; ++i) {
       models[i] = CHECK_NOTNULL(tflite::FlatBufferModel::BuildFromFile(
           model_segment_paths[i].c_str()));
-      managed_interpreters[i] =
-          CHECK_NOTNULL(CreateInterpreter(*(models[i]), contexts[i]));
+      managed_interpreters[i] = CHECK_NOTNULL(
+          CreateInterpreter(*(models[i]), contexts[i], &error_reporters[i]));
       interpreters[i] = managed_interpreters[i].get();
     }
 
@@ -344,7 +364,7 @@ class ModelPipeliningDmaBufDevboardTest : public ::testing::Test {
     auto check_result = [&runner, this]() {
       std::vector<PipelineTensor> output_tensors;
       int counter = 0;
-      while (runner->Pop(&output_tensors)) {
+      while (runner->Pop(&output_tensors).ok() && !output_tensors.empty()) {
         ASSERT_EQ(output_tensors.size(), 1);
         const auto &expected = (*ref_result_)[counter];
         const auto *actual =

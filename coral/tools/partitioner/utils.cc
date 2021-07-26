@@ -1,8 +1,23 @@
+/* Copyright 2019-2021 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================*/
+
 #include "coral/tools/partitioner/utils.h"
 
 #include <fstream>
 #include <iostream>
-#include <queue>
+#include <stack>
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
@@ -14,12 +29,21 @@
 namespace coral {
 
 namespace {
+bool IsCustomOp(const tflite::Model& model, int op_index) {
+  const auto* opcodes = model.operator_codes();
+  CHECK_EQ(model.subgraphs()->size(), 1);
+  const auto* ops = model.subgraphs()->Get(0)->operators();
+  const auto* op = ops->Get(op_index);
+  int opcode_index = op->opcode_index();
+  const auto* opcode = opcodes->Get(opcode_index);
+  return ::tflite::GetBuiltinCode(opcode) == ::tflite::BuiltinOperator_CUSTOM;
+}
+
 std::string GetOpName(const tflite::Model& model, int op_index) {
   const auto* opcodes = model.operator_codes();
   CHECK_EQ(model.subgraphs()->size(), 1);
   const auto* ops = model.subgraphs()->Get(0)->operators();
 
-  CHECK_GT(ops->size(), 0);
   const auto* op = ops->Get(op_index);
   int opcode_index = op->opcode_index();
   const auto* opcode = opcodes->Get(opcode_index);
@@ -104,35 +128,54 @@ std::vector<int> CalculateInDegree(const Graph& graph) {
   return in_degree;
 }
 
+std::vector<int> CalculateOutDegree(const Graph& graph) {
+  return CalculateInDegree(BuildReverseGraph(graph));
+}
+
 std::vector<int> TopologicalSort(const Graph& graph) {
   const int num_nodes = graph.size();
-  std::queue<int> to_visit;
+  // The vector to_visit serves as a stack, where back of the vector is the top
+  // of the conceptual stack's top.
+  std::vector<int> to_visit;
   std::vector<int> exe_order;
   exe_order.reserve(num_nodes);
 
   auto in_degree = CalculateInDegree(graph);
+  auto out_degree = CalculateOutDegree(graph);
   // Find all nodes with 0 in-degree as starting points.
   for (int i = 0; i < num_nodes; ++i) {
     if (in_degree[i] == 0) {
-      to_visit.push(i);
+      to_visit.push_back(i);
     }
   }
 
   while (!to_visit.empty()) {
-    const auto& node = to_visit.front();
-    to_visit.pop();
+    const int node = to_visit.back();
+    to_visit.pop_back();
     exe_order.push_back(node);
 
     for (const auto& child_node : graph[node]) {
       in_degree[child_node]--;
       if (in_degree[child_node] == 0) {
-        to_visit.push(child_node);
+        if (out_degree[child_node] == 0) {
+          // If the node has no child, prefer to visit it as late as possible.
+          to_visit.insert(to_visit.begin(), child_node);
+        } else {
+          to_visit.push_back(child_node);
+        }
       }
     }
   }
 
   LOG_IF(FATAL, exe_order.size() != num_nodes) << "Graph is NOT DAG";
   return exe_order;
+}
+
+std::vector<int> TopologicalSort(const tflite::Model& model) {
+  const auto& edges = BuildEdgeList(model);
+  const int num_nodes = model.subgraphs()->Get(0)->operators()->size();
+  const auto& graph = BuildGraph(edges, num_nodes);
+  return TopologicalSort(graph);
 }
 
 absl::flat_hash_map<std::string, int> BuildTensorNameToIndexMap(
@@ -270,14 +313,11 @@ std::string ExtractModelSegment(const tflite::Model& src_model,
 
 std::vector<SubgraphNodes> LocateSubgraphNodes(
     const std::vector<Edge>& edges, int num_nodes,
+    const std::vector<int>& exe_order_to_node_idx,
     const std::vector<int>& num_nodes_per_subgraph) {
   const auto& graph = BuildGraph(edges, num_nodes);
   const auto& reverse_graph = BuildReverseGraph(graph);
   const int num_subgraphs = num_nodes_per_subgraph.size();
-
-  // Find execution order based on topological sorted order. This is a mapping
-  // between execution order -> node index.
-  const auto& exe_order_to_node_idx = TopologicalSort(graph);
 
   // Find the node index -> execution order map.
   std::vector<int> node_idx_to_exe_order(num_nodes);
@@ -375,6 +415,7 @@ void WriteFileOrExit(const std::string& file_name,
 
 std::vector<int64_t> CalculateParameterSizes(const tflite::Model& model) {
   const int num_nodes = model.subgraphs()->Get(0)->operators()->size();
+  VLOG(1) << "Total num nodes: " << num_nodes;
   const auto* ops = model.subgraphs()->Get(0)->operators();
   const auto* tensors = model.subgraphs()->Get(0)->tensors();
   const auto* buffers = model.buffers();
@@ -383,22 +424,28 @@ std::vector<int64_t> CalculateParameterSizes(const tflite::Model& model) {
   std::vector<int64_t> parameter_sizes(num_nodes);
   for (int i = 0; i < num_nodes; ++i) {
     const auto* op = ops->Get(i);
-    // This assumes tflite model does not allocate memory for intermediate
-    // tensors.
-    int num_non_weight_tensors = 0;
-    for (const auto& input_index : *(op->inputs())) {
-      const auto* tensor = tensors->Get(input_index);
-      const auto* buffer = buffers->Get(tensor->buffer());
-      if (!buffer->data()) {
-        num_non_weight_tensors++;
-      } else {
-        parameter_sizes[i] += buffer->data()->size();
+    // Do not count parameters for custom operators, which can not be
+    // accelerated with Edge TPU.
+    if (IsCustomOp(model, i)) {
+      parameter_sizes[i] = 0;
+    } else {
+      // This assumes tflite model does not allocate memory for intermediate
+      // tensors.
+      int num_non_weight_tensors = 0;
+      for (const auto& input_index : *(op->inputs())) {
+        const auto* tensor = tensors->Get(input_index);
+        const auto* buffer = buffers->Get(tensor->buffer());
+        if (!buffer->data()) {
+          num_non_weight_tensors++;
+        } else {
+          parameter_sizes[i] += buffer->data()->size();
+        }
+        VLOG(1) << "Tensor name: " << tensor->name()->str() << " Buffer size: "
+                << (buffer->data() ? buffer->data()->size() : 0);
       }
-      VLOG(1) << "Tensor name: " << tensor->name()->str()
-              << " Buffer size: " << buffer->data()->size();
+      // Sanity Check, every op should have non-weights tensor.
+      CHECK_GT(num_non_weight_tensors, 0);
     }
-    // Sanity Check, every op should have non-weights tensor.
-    CHECK_GT(num_non_weight_tensors, 0);
     VLOG(1) << GetOpName(model, i)
             << " parameter size (bytes): " << parameter_sizes[i];
   }

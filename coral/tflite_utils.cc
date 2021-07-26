@@ -1,3 +1,18 @@
+/* Copyright 2019-2021 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================*/
+
 #include "coral/tflite_utils.h"
 
 #include <cstdlib>
@@ -6,7 +21,7 @@
 #include "absl/strings/match.h"
 #include "absl/strings/numbers.h"
 #include "absl/strings/substitute.h"
-#include "coral/posenet/posenet_decoder_op.h"
+#include "coral/pose_estimation/posenet_decoder_op.h"
 #include "tensorflow/lite/interpreter_builder.h"
 #include "tensorflow/lite/schema/schema_generated.h"
 #include "tensorflow/lite/stateful_error_reporter.h"
@@ -229,4 +244,23 @@ bool ContainsEdgeTpuCustomOp(const tflite::FlatBufferModel& model) {
   return false;
 }
 
+std::unordered_set<std::string> GetInputTensorNames(
+    const tflite::Interpreter& interpreter) {
+  std::unordered_set<std::string> names(interpreter.inputs().size());
+  for (int i = 0; i < interpreter.inputs().size(); ++i) {
+    names.insert(interpreter.input_tensor(i)->name);
+  }
+  return names;
+}
+
+const TfLiteTensor* GetInputTensor(const tflite::Interpreter& interpreter,
+                                   const char* name) {
+  for (const int input_index : interpreter.inputs()) {
+    const auto* input_tensor = interpreter.tensor(input_index);
+    if (std::strcmp(input_tensor->name, name) == 0) {
+      return input_tensor;
+    }
+  }
+  return nullptr;
+}
 }  // namespace coral

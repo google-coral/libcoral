@@ -45,8 +45,8 @@ for i in "$@"; do
   fi
 done
 
-# Build for k8 (use Ubuntu 16.04 for compatibility with most platforms).
-docker_build "k8" "ubuntu:16.04"
+# Build for k8 (use Ubuntu 18.04 for compatibility with most platforms).
+docker_build "k8" "ubuntu:18.04"
 
 # Build for armv7a.
 docker_build "armv7a" "debian:stretch"

@@ -1,12 +1,28 @@
+/* Copyright 2019-2021 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================*/
+
 #include "coral/pipeline/internal/segment_runner.h"
 
 #include <memory>
 
 #include "absl/memory/memory.h"
+#include "absl/status/status.h"
+#include "coral/error_reporter.h"
 #include "coral/pipeline/allocator.h"
 #include "coral/pipeline/internal/default_allocator.h"
 #include "coral/pipeline/test_utils.h"
-#include "coral/pipeline/utils.h"
 #include "coral/test_utils.h"
 #include "glog/logging.h"
 #include "gmock/gmock.h"
@@ -75,17 +91,21 @@ void CheckResults(const tflite::Interpreter& interpreter,
   }
 }
 
+class SegmentRunnerTest : public EdgeTpuCacheTestBase {};
+
 // Tests that SegmentRunner returns same output tensors as using
 // tflite::Interpreter when feeding the same inputs.
-TEST(SegmentRunnerTest, SameResultAsTfliteInterpreter) {
+TEST_F(SegmentRunnerTest, SameResultAsTfliteInterpreter) {
   const std::string model_name = "inception_v4_299_quant_edgetpu.tflite";
   auto model =
       tflite::FlatBufferModel::BuildFromFile(TestDataPath(model_name).c_str());
-  std::shared_ptr<edgetpu::EdgeTpuContext> edgetpu_resource =
-      edgetpu::EdgeTpuManager::GetSingleton()->OpenDevice();
+  auto* tpu_context = GetTpuContextCache();
 
-  auto pipeline_interpreter = CreateInterpreter(*model, edgetpu_resource.get());
-  auto tflite_interpreter = CreateInterpreter(*model, edgetpu_resource.get());
+  EdgeTpuErrorReporter error_reporter;
+  auto pipeline_interpreter =
+      CreateInterpreter(*model, tpu_context, &error_reporter);
+  auto tflite_interpreter =
+      CreateInterpreter(*model, tpu_context, &error_reporter);
 
   // Create SegmentRunner.
   WaitQueue<TensorMap> input_queue, output_queue;
@@ -124,6 +144,7 @@ TEST(SegmentRunnerTest, SameResultAsTfliteInterpreter) {
 
   // Run inference with SegmentRunner.
   runner.RunInference();
+  ASSERT_TRUE(runner.runner_status().ok());
   EXPECT_EQ(runner.stats().num_inferences, 1);
   EXPECT_GT(runner.stats().total_time_ns, 0);
 
@@ -136,6 +157,91 @@ TEST(SegmentRunnerTest, SameResultAsTfliteInterpreter) {
   ASSERT_TRUE(output_queue.Wait(&output_tensors));
   CheckResults(*tflite_interpreter, output_tensors);
   FreeTensors(output_tensors, default_allocator.get());
+}
+
+TEST_F(SegmentRunnerTest, InterpreterInferenceError) {
+  const std::string model_name = "inception_v4_299_quant_edgetpu.tflite";
+  auto model =
+      tflite::FlatBufferModel::BuildFromFile(TestDataPath(model_name).c_str());
+  auto* tpu_context = GetTpuContextCache();
+
+  EdgeTpuErrorReporter error_reporter;
+  // Bad interpreter. Tensors are not allocated.
+  auto bad_interpreter = CreateInterpreter(*model, tpu_context, &error_reporter,
+                                           /*allocate_tensors=*/false);
+
+  // Create SegmentRunner.
+  WaitQueue<TensorMap> input_queue, output_queue;
+  const auto& input_tensor_names = GetInputTensorNames(*bad_interpreter);
+  auto tensor_consumers_count =
+      BuildTensorConsumersCountMap(input_tensor_names);
+  auto default_allocator = absl::make_unique<DefaultAllocator>();
+  SegmentRunner runner = {
+      &tensor_consumers_count, &input_tensor_names,
+      bad_interpreter.get(),   &input_queue,
+      &output_queue,           default_allocator.get(),
+      default_allocator.get(),
+  };
+
+  // Set up input for SegmentRunner.
+  const auto& input_tensors = GenerateRandomInputs(
+      *bad_interpreter, tensor_consumers_count, default_allocator.get());
+  input_queue.push(input_tensors);
+  // Promise that no more requests will be added.
+  input_queue.StopWaiters();
+
+  // Run inference with SegmentRunner.
+  runner.RunInference();
+  ASSERT_EQ(runner.runner_status(),
+            absl::InternalError("Invoke called on model that is not ready."));
+  EXPECT_EQ(runner.stats().num_inferences, 0);
+  EXPECT_EQ(runner.stats().total_time_ns, 0);
+
+  ASSERT_EQ(output_queue.size(), 1);
+  TensorMap output_tensors;
+  ASSERT_TRUE(output_queue.Wait(&output_tensors));
+  EXPECT_TRUE(output_tensors.empty());
+}
+
+TEST_F(SegmentRunnerTest, EmptyInputMapError) {
+  const std::string model_name = "inception_v4_299_quant_edgetpu.tflite";
+  auto model =
+      tflite::FlatBufferModel::BuildFromFile(TestDataPath(model_name).c_str());
+  auto* tpu_context = GetTpuContextCache();
+
+  EdgeTpuErrorReporter error_reporter;
+  auto bad_interpreter =
+      CreateInterpreter(*model, tpu_context, &error_reporter);
+
+  // Create SegmentRunner.
+  WaitQueue<TensorMap> input_queue, output_queue;
+  const auto& input_tensor_names = GetInputTensorNames(*bad_interpreter);
+  auto tensor_consumers_count =
+      BuildTensorConsumersCountMap(input_tensor_names);
+  auto default_allocator = absl::make_unique<DefaultAllocator>();
+  SegmentRunner runner = {
+      &tensor_consumers_count, &input_tensor_names,
+      bad_interpreter.get(),   &input_queue,
+      &output_queue,           default_allocator.get(),
+      default_allocator.get(),
+  };
+
+  // Push an empty input map, which should trigger error.
+  input_queue.push({});
+  // Promise that no more requests will be added.
+  input_queue.StopWaiters();
+
+  // Run inference with SegmentRunner.
+  runner.RunInference();
+  ASSERT_EQ(runner.runner_status(),
+            absl::InternalError("Empty input tensor map."));
+  EXPECT_EQ(runner.stats().num_inferences, 0);
+  EXPECT_EQ(runner.stats().total_time_ns, 0);
+
+  ASSERT_EQ(output_queue.size(), 1);
+  TensorMap output_tensors;
+  ASSERT_TRUE(output_queue.Wait(&output_tensors));
+  EXPECT_TRUE(output_tensors.empty());
 }
 
 class MockAllocator : public Allocator {
@@ -184,13 +290,13 @@ class AddressCalculator {
   std::vector<void*> allocated_memory_list_;
 };
 
-TEST(SegmentRunnerTest, InputTensorsFreedByRunner) {
+TEST_F(SegmentRunnerTest, InputTensorsFreedByRunner) {
   const std::string model_name = "inception_v4_299_quant_edgetpu.tflite";
   auto model =
       tflite::FlatBufferModel::BuildFromFile(TestDataPath(model_name).c_str());
-  std::shared_ptr<edgetpu::EdgeTpuContext> edgetpu_resource =
-      edgetpu::EdgeTpuManager::GetSingleton()->OpenDevice();
-  auto interpreter = CreateInterpreter(*model, edgetpu_resource.get());
+  EdgeTpuErrorReporter error_reporter;
+  auto interpreter =
+      CreateInterpreter(*model, GetTpuContextCache(), &error_reporter);
 
   // Create SegmentRunner.
   WaitQueue<TensorMap> input_queue, output_queue;
@@ -224,6 +330,7 @@ TEST(SegmentRunnerTest, InputTensorsFreedByRunner) {
 
   // Run inference with SegmentRunner.
   runner.RunInference();
+  ASSERT_TRUE(runner.runner_status().ok());
   EXPECT_EQ(runner.stats().num_inferences, 1);
   EXPECT_GT(runner.stats().total_time_ns, 0);
 
@@ -244,13 +351,13 @@ TEST(SegmentRunnerTest, InputTensorsFreedByRunner) {
 
 // Set input tensors' num_consumer count >1 on purpose to see it is kept alive
 // after call to RunInference().
-TEST(SegmentRunnerTest, InputTensorsKeptAliveByRunner) {
+TEST_F(SegmentRunnerTest, InputTensorsKeptAliveByRunner) {
   const std::string model_name = "inception_v4_299_quant_edgetpu.tflite";
   auto model =
       tflite::FlatBufferModel::BuildFromFile(TestDataPath(model_name).c_str());
-  std::shared_ptr<edgetpu::EdgeTpuContext> edgetpu_resource =
-      edgetpu::EdgeTpuManager::GetSingleton()->OpenDevice();
-  auto interpreter = CreateInterpreter(*model, edgetpu_resource.get());
+  EdgeTpuErrorReporter error_reporter;
+  auto interpreter =
+      CreateInterpreter(*model, GetTpuContextCache(), &error_reporter);
 
   // Create SegmentRunner.
   WaitQueue<TensorMap> input_queue, output_queue;
@@ -287,6 +394,7 @@ TEST(SegmentRunnerTest, InputTensorsKeptAliveByRunner) {
 
   // Run inference with SegmentRunner.
   runner.RunInference();
+  ASSERT_TRUE(runner.runner_status().ok());
   EXPECT_EQ(runner.stats().num_inferences, 1);
   EXPECT_GT(runner.stats().total_time_ns, 0);
 

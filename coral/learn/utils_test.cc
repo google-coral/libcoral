@@ -1,3 +1,18 @@
+/* Copyright 2019-2021 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================*/
+
 #include "coral/learn/utils.h"
 
 #include <algorithm>
@@ -420,7 +435,7 @@ TEST(UtilsCpuTest, FindSingleOperatorWithInput) {
 }
 
 // Test parameter is model suffix, '.tflite' or '_edgetpu.tflite'.
-class UtilsRealModelTest : public ::testing::TestWithParam<std::string> {
+class UtilsRealModelTest : public ModelTestBase {
  protected:
   std::string GenerateModelPath(const std::string& file_name) {
     return file_name + GetParam();
@@ -429,10 +444,8 @@ class UtilsRealModelTest : public ::testing::TestWithParam<std::string> {
   void TestAppendFullyConnectedAndSoftmaxLayerToModel(
       const std::string& in_model_path) {
     auto in_model = LoadModelOrDie(in_model_path);
-    auto tpu_context =
-        ContainsEdgeTpuCustomOp(*in_model) ? GetEdgeTpuContextOrDie() : nullptr;
     auto in_interpreter =
-        MakeEdgeTpuInterpreterOrDie(*in_model, tpu_context.get());
+        MakeEdgeTpuInterpreterOrDie(*in_model, GetTpuContextIfNecessary());
     ASSERT_EQ(in_interpreter->AllocateTensors(), kTfLiteOk);
     auto in_input =
         MutableTensorData<uint8_t>(*in_interpreter->input_tensor(0));
@@ -452,10 +465,11 @@ class UtilsRealModelTest : public ::testing::TestWithParam<std::string> {
       std::fill(weights.begin() + embedding_vector_dim * (i - 1),
                 weights.begin() + embedding_vector_dim * i, scalar * i);
 
-    std::vector<float> biases(3, 0.0f);
-    std::vector<float> expected_fc_output = {embedding_vector_sum * scalar,
-                                             embedding_vector_sum * scalar * 2,
-                                             embedding_vector_sum * scalar * 3};
+    std::vector<float> biases(3, 10.0f);
+    std::vector<float> expected_fc_output = {
+        embedding_vector_sum * scalar + biases[0],
+        embedding_vector_sum * scalar * 2 + biases[1],
+        embedding_vector_sum * scalar * 3 + biases[2]};
     const float out_tensor_min =
         *std::min_element(expected_fc_output.begin(), expected_fc_output.end());
     const float out_tensor_max =
@@ -477,7 +491,7 @@ class UtilsRealModelTest : public ::testing::TestWithParam<std::string> {
 
     auto out_model = LoadModelOrDie(fbb);
     auto out_interpreter =
-        MakeEdgeTpuInterpreterOrDie(*out_model, tpu_context.get());
+        MakeEdgeTpuInterpreterOrDie(*out_model, GetTpuContextIfNecessary());
     ASSERT_EQ(out_interpreter->AllocateTensors(), kTfLiteOk);
     auto out_input =
         MutableTensorData<uint8_t>(*out_interpreter->input_tensor(0));

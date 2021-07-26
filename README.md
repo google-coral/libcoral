@@ -8,7 +8,6 @@ For developer documentation, see our guide to [Run inference on the Edge TPU
 with C++](https://coral.ai/docs/edgetpu/tflite-cpp/) and check out the
 [libcoral API reference](https://coral.ai/docs/reference/cpp/).
 
-
 ## Compilation
 
 Be sure to clone this repo with submodules:

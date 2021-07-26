@@ -1,5 +1,20 @@
-#ifndef EDGETPU_CPP_DETECTION_ADAPTER_H_
-#define EDGETPU_CPP_DETECTION_ADAPTER_H_
+/* Copyright 2019-2021 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================*/
+
+#ifndef LIBCORAL_CORAL_DETECTION_ADAPTER_H_
+#define LIBCORAL_CORAL_DETECTION_ADAPTER_H_
 
 #include <cstddef>
 #include <limits>
@@ -13,10 +28,13 @@
 
 namespace coral {
 
-// Detection result.
+// Represents a detected object.
 struct Object {
+  // The class label id.
   int id;
+  // The prediction score.
   float score;
+  // A `BBox` defining the bounding-box (ymin,xmin,ymax,xmax).
   BBox<float> bbox;
 };
 
@@ -32,32 +50,37 @@ inline std::ostream& operator<<(std::ostream& os, const Object& obj) {
   return os << ToString(obj);
 }
 
-// Converts inference output tensors to SSD detection results. Returns
-// top_k DetectionCandidate elements ordered by score, first element has
-// the highest score.
-//  - 'bboxes' : bounding boxes of detected objects. Four floats per object
-//  (box-corner encoding).
-//  - 'ids': class identifiers of detected objects. One float per object.
-//  - 'scores': confidence scores of detected objects. One float per object.
-//  - 'count': number of detected objects, all tensors defined above have valid
-// data only for these objects.
-//  - 'threshold' : float, minimum confidence threshold for returned
-//       predictions. For example, use 0.5 to receive only predictions
-//       with a confidence equal-to or higher-than 0.5.
-//  - 'top_k': size_t, the maximum number of predictions to return.
+// Converts detection output tensors into a list of SSD results.
 //
-// The function will return a vector of predictions which is sorted by
-// <score, label_id> in descending order.
+// @param bboxes Bounding boxes of detected objects. Four floats per object
+//  (box-corner encoding [ymin1,xmin1,ymax1,xmax1,ymin2,xmin2,...]).
+// @param ids Label identifiers of detected objects. One float per object.
+// @param scores Confidence scores of detected objects. One float per object.
+// @param count The number of detected objects (all tensors defined above
+//   have valid data for only this number of objects).
+// @param threshold The score threshold for results. All returned results have
+//   a score greater-than-or-equal-to this value.
+// @param top_k The maximum number of predictions to return.
+// @returns The top_k `Object` predictions, <id, score, bbox>, ordered by score
+// (first element has the highest score).
 std::vector<Object> GetDetectionResults(
     absl::Span<const float> bboxes, absl::Span<const float> ids,
     absl::Span<const float> scores, size_t count,
     float threshold = -std::numeric_limits<float>::infinity(),
     size_t top_k = std::numeric_limits<size_t>::max());
 
+// Gets results from a detection model as a list of ordered objects.
+//
+// @param interpreter The already-invoked interpreter for your detection model.
+// @param threshold The score threshold for results. All returned results have
+//   a score greater-than-or-equal-to this value.
+// @param top_k The maximum number of predictions to return.
+// @returns The top_k `Object` predictions, <id, score, bbox>, ordered by score
+// (first element has the highest score).
 std::vector<Object> GetDetectionResults(
     const tflite::Interpreter& interpreter,
     float threshold = -std::numeric_limits<float>::infinity(),
     size_t top_k = std::numeric_limits<size_t>::max());
 }  // namespace coral
 
-#endif  // EDGETPU_CPP_DETECTION_ADAPTER_H_
+#endif  // LIBCORAL_CORAL_DETECTION_ADAPTER_H_

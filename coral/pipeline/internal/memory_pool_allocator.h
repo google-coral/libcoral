@@ -1,10 +1,25 @@
-#ifndef EDGETPU_CPP_PIPELINE_INTERNAL_MEMORY_POOL_ALLOCATOR_H_
-#define EDGETPU_CPP_PIPELINE_INTERNAL_MEMORY_POOL_ALLOCATOR_H_
+/* Copyright 2019-2021 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================*/
+
+#ifndef LIBCORAL_CORAL_PIPELINE_INTERNAL_MEMORY_POOL_ALLOCATOR_H_
+#define LIBCORAL_CORAL_PIPELINE_INTERNAL_MEMORY_POOL_ALLOCATOR_H_
 
 #include <cstdint>
 #include <queue>
-#include <unordered_map>
 
+#include "absl/container/flat_hash_map.h"
 #include "absl/container/node_hash_map.h"
 #include "absl/synchronization/mutex.h"
 #include "coral/pipeline/allocator.h"
@@ -44,7 +59,7 @@ class MemoryPoolAllocator : public Allocator {
 
   // Key is memory block size, value is number of copies.
   explicit MemoryPoolAllocator(
-      const std::unordered_map<size_t, int>& size_to_copy_map);
+      const absl::flat_hash_map<size_t, int>& size_to_copy_map);
 
   ~MemoryPoolAllocator() override {
     if (pool_) {
@@ -123,4 +138,4 @@ class MemoryPoolAllocator : public Allocator {
 }  // namespace internal
 }  // namespace coral
 
-#endif  // EDGETPU_CPP_PIPELINE_INTERNAL_MEMORY_POOL_ALLOCATOR_H_
+#endif  // LIBCORAL_CORAL_PIPELINE_INTERNAL_MEMORY_POOL_ALLOCATOR_H_

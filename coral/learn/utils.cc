@@ -1,3 +1,18 @@
+/* Copyright 2019-2021 Google LLC
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+==============================================================================*/
+
 #include "coral/learn/utils.h"
 
 #include <algorithm>
@@ -409,9 +424,10 @@ void SetLinearParams(const std::vector<uint8_t>& kernel,
   auto& bias_buffer = model_t->buffers[bias_tensor->buffer];
   if (!bias.empty()) {
     CHECK_EQ(bias.size() * sizeof(bias.data()[0]), bias_buffer->data.size());
-    std::memcpy(bias_buffer->data.data(), bias.data(), bias.size());
+    std::memcpy(bias_buffer->data.data(), bias.data(),
+                bias_buffer->data.size());
   } else {
-    std::memset(bias_buffer->data.data(), 0, bias_buffer->data.size());
+    std::fill(bias_buffer->data.begin(), bias_buffer->data.end(), 0);
   }
 }
 
@@ -451,7 +467,9 @@ std::vector<int> FindOperatorsWithInput(tflite::BuiltinOperator target_op,
   for (int op_index = base_op_index; op_index < ops.size(); ++op_index) {
     const auto& op = ops[op_index];
     auto builtin_code = tflite::GetBuiltinCode(opcodes[op->opcode_index].get());
-    if (op->inputs[0] == input_tensor_index && builtin_code == target_op) {
+    if (std::find(op->inputs.begin(), op->inputs.end(), input_tensor_index) !=
+            op->inputs.end() &&
+        builtin_code == target_op) {
       operator_indices.push_back(op_index);
     }
   }
