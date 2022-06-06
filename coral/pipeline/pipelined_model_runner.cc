@@ -142,6 +142,9 @@ PipelinedModelRunner::PipelinedModelRunner(
 }
 
 PipelinedModelRunner::~PipelinedModelRunner() {
+  // returns dicrectly if the pipeline was shutdown.
+  if (!pipeline_on_) return;
+  
   const auto status = ShutdownPipeline();
   if (!status.ok()) {
     LOG(ERROR) << "Failed to shutdown status: " << status;
