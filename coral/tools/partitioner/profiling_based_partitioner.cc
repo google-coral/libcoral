@@ -293,6 +293,7 @@ bool ProfilingBasedPartitioner::SearchPartition(
 int64_t ProfilingBasedPartitioner::PartitionOnTargetLatency(
     int64_t target_latency, int partition_search_step,
     int delegate_search_step) {
+  int64_t segment_latency;
   CHECK_GT(partition_search_step, 0);
   // Initially, the first segment takes most operators and each other segment
   // takes one operator.
@@ -308,14 +309,20 @@ int64_t ProfilingBasedPartitioner::PartitionOnTargetLatency(
   }
 
   CHECK_EQ(std::accumulate(num_ops.begin(), num_ops.end(), 0), total_num_ops);
-  const auto last_segment_latency = PartitionCompileAndAnalyze(
-      num_ops, num_segments_ - 1, delegate_search_step);
+
+  int64_t slowest_segment_latency = 0;
+  for (int i = 0; i < num_segments_; i++) {
+    segment_latency = PartitionCompileAndAnalyze(partition_, i);
+    if (segment_latency >= slowest_segment_latency)
+      slowest_segment_latency = segment_latency;
+  }
+
   CHECK_GT(last_segment_latency, 0);
   LOG(INFO) << "target_latency: " << target_latency
             << ", num_ops: " << absl::StrJoin(num_ops, ",")
             << ", last segment latency: " << last_segment_latency;
   partition_ = num_ops;
-  return last_segment_latency;
+  return slowest_segment_latency;
 }
 
 bool BisectPartition(const std::string& edgetpu_compiler_binary,
@@ -345,21 +352,23 @@ bool BisectPartition(const std::string& edgetpu_compiler_binary,
 
   while (std::abs(upper_bound - lower_bound) > diff_threshold_ns) {
     const int64_t target_latency = (lower_bound + upper_bound) / 2;
-    const int64_t last_segment_latency = partitioner.PartitionOnTargetLatency(
-        target_latency, partition_search_step, delegate_search_step);
+    const int64_t slowest_segment_latency =
+        partitioner.PartitionOnTargetLatency(
+            target_latency, partition_search_step, delegate_search_step);
+
     // If latency of the last segment is lower than `target_latency`, it
     // means that `target_latency` gives a valid partition.
-    if (last_segment_latency < target_latency) {
+    if (slowest_segment_latency < target_latency) {
       best_partition = partitioner.partition();
       CHECK(!best_partition.empty());
       upper_bound = target_latency;
     } else {
       // If latency of the last segment is higher than `target_latency` but
       // lower than `upper_bound`, `upper_bound` could be updated as well.
-      if (last_segment_latency < upper_bound) {
+      if (slowest_segment_latency < upper_bound) {
         best_partition = partitioner.partition();
         CHECK(!best_partition.empty());
-        upper_bound = last_segment_latency;
+        upper_bound = slowest_segment_latency;
       }
       lower_bound = target_latency;
     }
