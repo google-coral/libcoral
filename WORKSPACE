@@ -82,4 +82,5 @@ new_local_repository(
     build_file = "third_party/system_linux/BUILD",
     path = "/usr/lib",
 )
+# path = "/usr/system_libs", # Make this change to compile on vanilla ubuntu
 
