@@ -80,6 +80,6 @@ new_local_repository(
 new_local_repository(
     name = "system_linux",
     build_file = "third_party/system_linux/BUILD",
-    path = "/usr/system_libs",
+    path = "/usr/lib",
 )
 
