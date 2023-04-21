@@ -26,8 +26,8 @@ else
 $(error $(OS) is not supported)
 endif
 
-ifeq ($(filter $(CPU),k8 armv7a aarch64 darwin),)
-$(error CPU must be k8, armv7a, aarch64, or darwin)
+ifeq ($(filter $(CPU),k8 armv7a aarch64 darwin macos_x86_64 macos_arm64),)
+$(error CPU must be k8, armv7a, aarch64, darwin, macos_arm64, or macos_x86_64)
 endif
 
 # Allowed COMPILATION_MODE values: opt, dbg, fastbuild
@@ -41,6 +41,10 @@ BAZEL_BUILD_FLAGS := --compilation_mode=$(COMPILATION_MODE) \
                      --cpu=$(CPU)
 
 ifeq ($(CPU),aarch64)
+BAZEL_BUILD_FLAGS += --copt=-ffp-contract=off
+else ifeq ($(CPU),macos_x86_64)
+BAZEL_BUILD_FLAGS += --copt=-ffp-contract=off
+else ifeq ($(CPU),macos_arm64)
 BAZEL_BUILD_FLAGS += --copt=-ffp-contract=off
 else ifeq ($(CPU),armv7a)
 BAZEL_BUILD_FLAGS += --copt=-ffp-contract=off
@@ -69,45 +73,84 @@ BENCHMARKS_OUT_DIR := $(MAKEFILE_DIR)/out/$(CPU)/benchmarks
         clean \
         help
 
-all: tests benchmarks tools examples
+all: tests_x86_64 benchmarks_x86_64 tools_x86_64 examples_x86_64 tests_arm64 benchmarks_arm64 tools_arm64 examples_arm64
 
-tests:
-	bazel build $(BAZEL_BUILD_FLAGS) $(shell bazel query 'kind(cc_.*test, //coral/...)' | $(TEST_FILTER))
-	$(call copy_out_files,"*_test",$(TESTS_OUT_DIR))
+tests_x86_64:
+	bazel build $(BAZEL_BUILD_FLAGS) --cpu=macos_x86_64 $(shell bazel query 'kind(cc_.*test, //coral/...)' | $(TEST_FILTER))
+	$(call copy_out_files,"*_test_x86_64",$(TESTS_OUT_DIR))
 
-benchmarks:
-	bazel build $(BAZEL_BUILD_FLAGS) $(shell bazel query 'kind(cc_binary, //coral/...)' | grep benchmark)
-	$(call copy_out_files,"*_benchmark",$(BENCHMARKS_OUT_DIR))
+benchmarks_x86_64:
+	bazel build $(BAZEL_BUILD_FLAGS) --cpu=macos_x86_64 $(shell bazel query 'kind(cc_binary, //coral/...)' | grep benchmark)
+	$(call copy_out_files,"*_benchmark_x86_64",$(BENCHMARKS_OUT_DIR))
 
-tools:
-	bazel build $(BAZEL_BUILD_FLAGS) //coral/tools:append_recurrent_links \
+tools_x86_64:
+	bazel build $(BAZEL_BUILD_FLAGS) --cpu=macos_x86_64  //coral/tools:append_recurrent_links \
 	                                 //coral/tools:join_tflite_models \
 	                                 //coral/tools:multiple_tpus_performance_analysis \
 	                                 //coral/tools:model_pipelining_performance_analysis \
 	                                 //coral/tools/partitioner:partition_with_profiling
 	mkdir -p $(TOOLS_OUT_DIR)
-	cp -f $(BAZEL_OUT_DIR)/coral/tools/append_recurrent_links \
-	      $(BAZEL_OUT_DIR)/coral/tools/join_tflite_models \
-	      $(BAZEL_OUT_DIR)/coral/tools/multiple_tpus_performance_analysis \
-	      $(BAZEL_OUT_DIR)/coral/tools/model_pipelining_performance_analysis \
+	cp -f $(BAZEL_OUT_DIR)/coral/tools/append_recurrent_links_x86_64 \
+	      $(BAZEL_OUT_DIR)/coral/tools/join_tflite_models_x86_64 \
+	      $(BAZEL_OUT_DIR)/coral/tools/multiple_tpus_performance_analysis_x86_64 \
+	      $(BAZEL_OUT_DIR)/coral/tools/model_pipelining_performance_analysis_x86_64 \
 	      $(TOOLS_OUT_DIR)
 	mkdir -p $(TOOLS_OUT_DIR)/partitioner
-	cp -f $(BAZEL_OUT_DIR)/coral/tools/partitioner/partition_with_profiling \
-	      $(TOOLS_OUT_DIR)/partitioner
+	cp -f $(BAZEL_OUT_DIR)/coral/tools/partitioner/partition_with_profiling_x86_64 \
+	      $(TOOLS_OUT_DIR)/partitioner_x86_64
 
-examples:
-	bazel build $(BAZEL_BUILD_FLAGS) //coral/examples:two_models_one_tpu \
+examples_x86_64:
+	bazel build $(BAZEL_BUILD_FLAGS) --cpu=macos_x86_64  //coral/examples:two_models_one_tpu \
 	                                 //coral/examples:two_models_two_tpus_threaded \
 	                                 //coral/examples:model_pipelining \
 	                                 //coral/examples:classify_image \
 	                                 //coral/examples:backprop_last_layer
 	mkdir -p $(EXAMPLES_OUT_DIR)
-	cp -f $(BAZEL_OUT_DIR)/coral/examples/two_models_one_tpu \
-	      $(BAZEL_OUT_DIR)/coral/examples/two_models_two_tpus_threaded \
-	      $(BAZEL_OUT_DIR)/coral/examples/model_pipelining \
-	      $(BAZEL_OUT_DIR)/coral/examples/classify_image \
-	      $(BAZEL_OUT_DIR)/coral/examples/backprop_last_layer \
+	cp -f $(BAZEL_OUT_DIR)/coral/examples/two_models_one_tpu_x86_64 \
+	      $(BAZEL_OUT_DIR)/coral/examples/two_models_two_tpus_threaded_x86_64 \
+	      $(BAZEL_OUT_DIR)/coral/examples/model_pipelining_x86_64 \
+	      $(BAZEL_OUT_DIR)/coral/examples/classify_image_x86_64 \
+	      $(BAZEL_OUT_DIR)/coral/examples/backprop_last_layer_x86_64 \
 	      $(EXAMPLES_OUT_DIR)
+
+tests_arm64:
+	bazel build $(BAZEL_BUILD_FLAGS) --cpu=macos_arm64 $(shell bazel query 'kind(cc_.*test, //coral/...)' | $(TEST_FILTER))
+	$(call copy_out_files,"*_test_arm64",$(TESTS_OUT_DIR))
+
+benchmarks_arm64:
+	bazel build $(BAZEL_BUILD_FLAGS) --cpu=macos_arm64 $(shell bazel query 'kind(cc_binary, //coral/...)' | grep benchmark)
+	$(call copy_out_files,"*_benchmark_arm64",$(BENCHMARKS_OUT_DIR))
+
+tools_arm64:
+	bazel build $(BAZEL_BUILD_FLAGS) ---cpu=macos_arm64 //coral/tools:append_recurrent_links_arm64 \
+	                                 //coral/tools:join_tflite_models \
+	                                 //coral/tools:multiple_tpus_performance_analysis\
+	                                 //coral/tools:model_pipelining_performance_analysis \
+	                                 //coral/tools/partitioner:partition_with_profiling
+	mkdir -p $(TOOLS_OUT_DIR)
+	cp -f $(BAZEL_OUT_DIR)/coral/tools/append_recurrent_links_arm64 \
+	      $(BAZEL_OUT_DIR)/coral/tools/join_tflite_models_arm64 \
+	      $(BAZEL_OUT_DIR)/coral/tools/multiple_tpus_performance_analysis_arm64 \
+	      $(BAZEL_OUT_DIR)/coral/tools/model_pipelining_performance_analysis_arm64 \
+	      $(TOOLS_OUT_DIR)
+	mkdir -p $(TOOLS_OUT_DIR)/partitioner
+	cp -f $(BAZEL_OUT_DIR)/coral/tools/partitioner/partition_with_profiling_arm64 \
+	      $(TOOLS_OUT_DIR)/partitioner_arm64
+
+examples_arm64:
+	bazel build $(BAZEL_BUILD_FLAGS) --cpu=macos_arm64 //coral/examples:two_models_one_tpu \
+	                                 //coral/examples:two_models_two_tpus_threaded \
+	                                 //coral/examples:model_pipelining \
+	                                 //coral/examples:classify_image \
+	                                 //coral/examples:backprop_last_layer
+	mkdir -p $(EXAMPLES_OUT_DIR)
+	cp -f $(BAZEL_OUT_DIR)/coral/examples/two_models_one_tpu_arm64 \
+	      $(BAZEL_OUT_DIR)/coral/examples/two_models_two_tpus_threaded_arm64 \
+	      $(BAZEL_OUT_DIR)/coral/examples/model_pipelining_arm64 \
+	      $(BAZEL_OUT_DIR)/coral/examples/classify_image_arm64 \
+	      $(BAZEL_OUT_DIR)/coral/examples/backprop_last_layer_arm64 \
+	      $(EXAMPLES_OUT_DIR)
+
 
 clean:
 	rm -rf $(MAKEFILE_DIR)/bazel-* \
