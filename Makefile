@@ -14,20 +14,27 @@
 SHELL := /bin/bash
 MAKEFILE_DIR := $(realpath $(dir $(lastword $(MAKEFILE_LIST))))
 OS := $(shell uname -s)
-
+ARCH := $(shell uname -p)
 # Allowed CPU values: k8, armv7a, aarch64, darwin
 ifeq ($(OS),Linux)
 CPU ?= k8
 TEST_FILTER ?= cat
 else ifeq ($(OS),Darwin)
+ifeq ($(ARCH),arm)
+CPU ?= darwin_arm64
+TEST_FILTER ?= grep -v dmabuf
+DARWIN_CPU := darwin_arm64
+else
 CPU ?= darwin
 TEST_FILTER ?= grep -v dmabuf
+DARWIN_CPU := darwin_x86_64
+endif
 else
 $(error $(OS) is not supported)
 endif
 
-ifeq ($(filter $(CPU),k8 armv7a aarch64 darwin),)
-$(error CPU must be k8, armv7a, aarch64, or darwin)
+ifeq ($(filter $(CPU),k8 armv7a aarch64 darwin darwin_arm64),)
+$(error CPU must be k8, armv7a, aarch64, darwin, or darwin_arm64)
 endif
 
 # Allowed COMPILATION_MODE values: opt, dbg, fastbuild
@@ -36,11 +43,14 @@ ifeq ($(filter $(COMPILATION_MODE),opt dbg fastbuild),)
 $(error COMPILATION_MODE must be opt, dbg, or fastbuild)
 endif
 
-BAZEL_OUT_DIR :=  $(MAKEFILE_DIR)/bazel-out/$(CPU)-$(COMPILATION_MODE)/bin
-BAZEL_BUILD_FLAGS := --compilation_mode=$(COMPILATION_MODE) \
-                     --cpu=$(CPU)
+BAZEL_OUT_DIR :=  $(MAKEFILE_DIR)/bazel-out/$(DARWIN_CPU)-$(COMPILATION_MODE)/bin
+BAZEL_BUILD_FLAGS := --compilation_mode=$(COMPILATION_MODE) --cpu=$(DARWIN_CPU)
 
 ifeq ($(CPU),aarch64)
+BAZEL_BUILD_FLAGS += --copt=-ffp-contract=off
+else ifeq ($(CPU),darwin_x86_64)
+BAZEL_BUILD_FLAGS += --copt=-ffp-contract=off
+else ifeq ($(CPU),darwin_arm64)
 BAZEL_BUILD_FLAGS += --copt=-ffp-contract=off
 else ifeq ($(CPU),armv7a)
 BAZEL_BUILD_FLAGS += --copt=-ffp-contract=off
@@ -56,10 +66,10 @@ done; \
 popd
 endef
 
-EXAMPLES_OUT_DIR   := $(MAKEFILE_DIR)/out/$(CPU)/examples
-TOOLS_OUT_DIR      := $(MAKEFILE_DIR)/out/$(CPU)/tools
-TESTS_OUT_DIR      := $(MAKEFILE_DIR)/out/$(CPU)/tests
-BENCHMARKS_OUT_DIR := $(MAKEFILE_DIR)/out/$(CPU)/benchmarks
+EXAMPLES_OUT_DIR   := $(MAKEFILE_DIR)/out/$(DARWIN_CPU)/examples
+TOOLS_OUT_DIR      := $(MAKEFILE_DIR)/out/$(DARWIN_CPU)/tools
+TESTS_OUT_DIR      := $(MAKEFILE_DIR)/out/$(DARWIN_CPU)/tests
+BENCHMARKS_OUT_DIR := $(MAKEFILE_DIR)/out/$(DARWIN_CPU)/benchmarks
 
 .PHONY: all \
         tests \
@@ -108,7 +118,7 @@ examples:
 	      $(BAZEL_OUT_DIR)/coral/examples/classify_image \
 	      $(BAZEL_OUT_DIR)/coral/examples/backprop_last_layer \
 	      $(EXAMPLES_OUT_DIR)
-
+	      
 clean:
 	rm -rf $(MAKEFILE_DIR)/bazel-* \
 	       $(MAKEFILE_DIR)/out
