@@ -14,20 +14,27 @@
 SHELL := /bin/bash
 MAKEFILE_DIR := $(realpath $(dir $(lastword $(MAKEFILE_LIST))))
 OS := $(shell uname -s)
-
+ARCH := $(shell uname -p)
 # Allowed CPU values: k8, armv7a, aarch64, darwin
 ifeq ($(OS),Linux)
 CPU ?= k8
 TEST_FILTER ?= cat
 else ifeq ($(OS),Darwin)
+ifeq ($(ARCH),arm)
+CPU ?= darwin_arm64
+TEST_FILTER ?= grep -v dmabuf
+DARWIN_CPU := darwin_arm64
+else
 CPU ?= darwin
 TEST_FILTER ?= grep -v dmabuf
+DARWIN_CPU := darwin_x86_64
+endif
 else
 $(error $(OS) is not supported)
 endif
 
-ifeq ($(filter $(CPU),k8 armv7a aarch64 darwin macos_x86_64 macos_arm64),)
-$(error CPU must be k8, armv7a, aarch64, darwin, macos_arm64, or macos_x86_64)
+ifeq ($(filter $(CPU),k8 armv7a aarch64 darwin darwin_arm64),)
+$(error CPU must be k8, armv7a, aarch64, darwin, or darwin_arm64)
 endif
 
 # Allowed COMPILATION_MODE values: opt, dbg, fastbuild
@@ -36,15 +43,14 @@ ifeq ($(filter $(COMPILATION_MODE),opt dbg fastbuild),)
 $(error COMPILATION_MODE must be opt, dbg, or fastbuild)
 endif
 
-BAZEL_OUT_DIR :=  $(MAKEFILE_DIR)/bazel-out/$(CPU)-$(COMPILATION_MODE)/bin
-BAZEL_BUILD_FLAGS := --compilation_mode=$(COMPILATION_MODE) \
-                     --cpu=$(CPU)
+BAZEL_OUT_DIR :=  $(MAKEFILE_DIR)/bazel-out/$(DARWIN_CPU)-$(COMPILATION_MODE)/bin
+BAZEL_BUILD_FLAGS := --compilation_mode=$(COMPILATION_MODE) --cpu=$(DARWIN_CPU)
 
 ifeq ($(CPU),aarch64)
 BAZEL_BUILD_FLAGS += --copt=-ffp-contract=off
-else ifeq ($(CPU),macos_x86_64)
+else ifeq ($(CPU),darwin_x86_64)
 BAZEL_BUILD_FLAGS += --copt=-ffp-contract=off
-else ifeq ($(CPU),macos_arm64)
+else ifeq ($(CPU),darwin_arm64)
 BAZEL_BUILD_FLAGS += --copt=-ffp-contract=off
 else ifeq ($(CPU),armv7a)
 BAZEL_BUILD_FLAGS += --copt=-ffp-contract=off
@@ -60,10 +66,10 @@ done; \
 popd
 endef
 
-EXAMPLES_OUT_DIR   := $(MAKEFILE_DIR)/out/$(CPU)/examples
-TOOLS_OUT_DIR      := $(MAKEFILE_DIR)/out/$(CPU)/tools
-TESTS_OUT_DIR      := $(MAKEFILE_DIR)/out/$(CPU)/tests
-BENCHMARKS_OUT_DIR := $(MAKEFILE_DIR)/out/$(CPU)/benchmarks
+EXAMPLES_OUT_DIR   := $(MAKEFILE_DIR)/out/$(DARWIN_CPU)/examples
+TOOLS_OUT_DIR      := $(MAKEFILE_DIR)/out/$(DARWIN_CPU)/tools
+TESTS_OUT_DIR      := $(MAKEFILE_DIR)/out/$(DARWIN_CPU)/tests
+BENCHMARKS_OUT_DIR := $(MAKEFILE_DIR)/out/$(DARWIN_CPU)/benchmarks
 
 .PHONY: all \
         tests \
@@ -73,85 +79,46 @@ BENCHMARKS_OUT_DIR := $(MAKEFILE_DIR)/out/$(CPU)/benchmarks
         clean \
         help
 
-all: tests_x86_64 benchmarks_x86_64 tools_x86_64 examples_x86_64 tests_arm64 benchmarks_arm64 tools_arm64 examples_arm64
+all: tests benchmarks tools examples
 
-tests_x86_64:
-	bazel build $(BAZEL_BUILD_FLAGS) --cpu=macos_x86_64 $(shell bazel query 'kind(cc_.*test, //coral/...)' | $(TEST_FILTER))
-	$(call copy_out_files,"*_test_x86_64",$(TESTS_OUT_DIR))
+tests:
+	bazel build $(BAZEL_BUILD_FLAGS) $(shell bazel query 'kind(cc_.*test, //coral/...)' | $(TEST_FILTER))
+	$(call copy_out_files,"*_test",$(TESTS_OUT_DIR))
 
-benchmarks_x86_64:
-	bazel build $(BAZEL_BUILD_FLAGS) --cpu=macos_x86_64 $(shell bazel query 'kind(cc_binary, //coral/...)' | grep benchmark)
-	$(call copy_out_files,"*_benchmark_x86_64",$(BENCHMARKS_OUT_DIR))
+benchmarks:
+	bazel build $(BAZEL_BUILD_FLAGS) $(shell bazel query 'kind(cc_binary, //coral/...)' | grep benchmark)
+	$(call copy_out_files,"*_benchmark",$(BENCHMARKS_OUT_DIR))
 
-tools_x86_64:
-	bazel build $(BAZEL_BUILD_FLAGS) --cpu=macos_x86_64  //coral/tools:append_recurrent_links \
+tools:
+	bazel build $(BAZEL_BUILD_FLAGS) //coral/tools:append_recurrent_links \
 	                                 //coral/tools:join_tflite_models \
 	                                 //coral/tools:multiple_tpus_performance_analysis \
 	                                 //coral/tools:model_pipelining_performance_analysis \
 	                                 //coral/tools/partitioner:partition_with_profiling
 	mkdir -p $(TOOLS_OUT_DIR)
-	cp -f $(BAZEL_OUT_DIR)/coral/tools/append_recurrent_links_x86_64 \
-	      $(BAZEL_OUT_DIR)/coral/tools/join_tflite_models_x86_64 \
-	      $(BAZEL_OUT_DIR)/coral/tools/multiple_tpus_performance_analysis_x86_64 \
-	      $(BAZEL_OUT_DIR)/coral/tools/model_pipelining_performance_analysis_x86_64 \
+	cp -f $(BAZEL_OUT_DIR)/coral/tools/append_recurrent_links \
+	      $(BAZEL_OUT_DIR)/coral/tools/join_tflite_models \
+	      $(BAZEL_OUT_DIR)/coral/tools/multiple_tpus_performance_analysis \
+	      $(BAZEL_OUT_DIR)/coral/tools/model_pipelining_performance_analysis \
 	      $(TOOLS_OUT_DIR)
 	mkdir -p $(TOOLS_OUT_DIR)/partitioner
-	cp -f $(BAZEL_OUT_DIR)/coral/tools/partitioner/partition_with_profiling_x86_64 \
-	      $(TOOLS_OUT_DIR)/partitioner_x86_64
+	cp -f $(BAZEL_OUT_DIR)/coral/tools/partitioner/partition_with_profiling \
+	      $(TOOLS_OUT_DIR)/partitioner
 
-examples_x86_64:
-	bazel build $(BAZEL_BUILD_FLAGS) --cpu=macos_x86_64  //coral/examples:two_models_one_tpu \
+examples:
+	bazel build $(BAZEL_BUILD_FLAGS) //coral/examples:two_models_one_tpu \
 	                                 //coral/examples:two_models_two_tpus_threaded \
 	                                 //coral/examples:model_pipelining \
 	                                 //coral/examples:classify_image \
 	                                 //coral/examples:backprop_last_layer
 	mkdir -p $(EXAMPLES_OUT_DIR)
-	cp -f $(BAZEL_OUT_DIR)/coral/examples/two_models_one_tpu_x86_64 \
-	      $(BAZEL_OUT_DIR)/coral/examples/two_models_two_tpus_threaded_x86_64 \
-	      $(BAZEL_OUT_DIR)/coral/examples/model_pipelining_x86_64 \
-	      $(BAZEL_OUT_DIR)/coral/examples/classify_image_x86_64 \
-	      $(BAZEL_OUT_DIR)/coral/examples/backprop_last_layer_x86_64 \
+	cp -f $(BAZEL_OUT_DIR)/coral/examples/two_models_one_tpu \
+	      $(BAZEL_OUT_DIR)/coral/examples/two_models_two_tpus_threaded \
+	      $(BAZEL_OUT_DIR)/coral/examples/model_pipelining \
+	      $(BAZEL_OUT_DIR)/coral/examples/classify_image \
+	      $(BAZEL_OUT_DIR)/coral/examples/backprop_last_layer \
 	      $(EXAMPLES_OUT_DIR)
-
-tests_arm64:
-	bazel build $(BAZEL_BUILD_FLAGS) --cpu=macos_arm64 $(shell bazel query 'kind(cc_.*test, //coral/...)' | $(TEST_FILTER))
-	$(call copy_out_files,"*_test_arm64",$(TESTS_OUT_DIR))
-
-benchmarks_arm64:
-	bazel build $(BAZEL_BUILD_FLAGS) --cpu=macos_arm64 $(shell bazel query 'kind(cc_binary, //coral/...)' | grep benchmark)
-	$(call copy_out_files,"*_benchmark_arm64",$(BENCHMARKS_OUT_DIR))
-
-tools_arm64:
-	bazel build $(BAZEL_BUILD_FLAGS) ---cpu=macos_arm64 //coral/tools:append_recurrent_links_arm64 \
-	                                 //coral/tools:join_tflite_models \
-	                                 //coral/tools:multiple_tpus_performance_analysis\
-	                                 //coral/tools:model_pipelining_performance_analysis \
-	                                 //coral/tools/partitioner:partition_with_profiling
-	mkdir -p $(TOOLS_OUT_DIR)
-	cp -f $(BAZEL_OUT_DIR)/coral/tools/append_recurrent_links_arm64 \
-	      $(BAZEL_OUT_DIR)/coral/tools/join_tflite_models_arm64 \
-	      $(BAZEL_OUT_DIR)/coral/tools/multiple_tpus_performance_analysis_arm64 \
-	      $(BAZEL_OUT_DIR)/coral/tools/model_pipelining_performance_analysis_arm64 \
-	      $(TOOLS_OUT_DIR)
-	mkdir -p $(TOOLS_OUT_DIR)/partitioner
-	cp -f $(BAZEL_OUT_DIR)/coral/tools/partitioner/partition_with_profiling_arm64 \
-	      $(TOOLS_OUT_DIR)/partitioner_arm64
-
-examples_arm64:
-	bazel build $(BAZEL_BUILD_FLAGS) --cpu=macos_arm64 //coral/examples:two_models_one_tpu \
-	                                 //coral/examples:two_models_two_tpus_threaded \
-	                                 //coral/examples:model_pipelining \
-	                                 //coral/examples:classify_image \
-	                                 //coral/examples:backprop_last_layer
-	mkdir -p $(EXAMPLES_OUT_DIR)
-	cp -f $(BAZEL_OUT_DIR)/coral/examples/two_models_one_tpu_arm64 \
-	      $(BAZEL_OUT_DIR)/coral/examples/two_models_two_tpus_threaded_arm64 \
-	      $(BAZEL_OUT_DIR)/coral/examples/model_pipelining_arm64 \
-	      $(BAZEL_OUT_DIR)/coral/examples/classify_image_arm64 \
-	      $(BAZEL_OUT_DIR)/coral/examples/backprop_last_layer_arm64 \
-	      $(EXAMPLES_OUT_DIR)
-
-
+	      
 clean:
 	rm -rf $(MAKEFILE_DIR)/bazel-* \
 	       $(MAKEFILE_DIR)/out
