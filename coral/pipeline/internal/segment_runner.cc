@@ -24,20 +24,6 @@ limitations under the License.
 namespace coral {
 namespace internal {
 namespace {
-TfLiteFloatArray* TfLiteFloatArrayCopy(const TfLiteFloatArray* src) {
-  if (!src) {
-    return nullptr;
-  }
-  TfLiteFloatArray* ret = static_cast<TfLiteFloatArray*>(
-      std::malloc(TfLiteFloatArrayGetSizeInBytes(src->size)));
-  if (!ret) {
-    return nullptr;
-  }
-  ret->size = src->size;
-  std::memcpy(ret->data, src->data, src->size * sizeof(float));
-  return ret;
-}
-
 void DmaDelegateFreeBufferHandle(TfLiteContext* context,
                                  struct TfLiteDelegate* delegate,
                                  TfLiteBufferHandle* handle) {
