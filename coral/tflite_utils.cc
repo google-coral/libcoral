@@ -28,17 +28,6 @@ limitations under the License.
 
 namespace coral {
 namespace {
-TfLiteFloatArray* TfLiteFloatArrayCopy(const TfLiteFloatArray* src) {
-  if (!src) return nullptr;
-
-  auto* copy = static_cast<TfLiteFloatArray*>(
-      malloc(TfLiteFloatArrayGetSizeInBytes(src->size)));
-  CHECK(copy);
-  copy->size = src->size;
-  std::memcpy(copy->data, src->data, src->size * sizeof(float));
-  return copy;
-}
-
 TfLiteAffineQuantization* TfLiteAffineQuantizationCopy(
     const TfLiteAffineQuantization* src) {
   if (!src) return nullptr;
