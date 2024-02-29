@@ -52,7 +52,7 @@ TrainingData ShuffleAndSplitData(const MatrixXf& data_matrix,
   fake_data.training_data =
       shuffled_data(Eigen::seq(0, num_train - 1), Eigen::indexing::all);
   fake_data.validation_data =
-      shuffled_data(Eigen::seq(num_train, Eigen::last), Eigen::indexing::all);
+      shuffled_data(Eigen::seq(num_train, Eigen::placeholders::last), Eigen::indexing::all);
 
   fake_data.training_labels.assign(shuffled_labels.begin(),
                                    shuffled_labels.begin() + num_train);
