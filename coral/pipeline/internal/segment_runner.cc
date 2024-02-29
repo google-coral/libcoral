@@ -82,7 +82,7 @@ absl::Status SegmentRunner::SetExternalTensorBuffer(const char* buffer,
     // its memory here.
     auto* quant_params_clone = reinterpret_cast<TfLiteAffineQuantization*>(
         malloc(sizeof(TfLiteAffineQuantization)));
-    quant_params_clone->scale = TfLiteFloatArrayCopy(quant_params->scale);
+    quant_params_clone->scale = coral::internal::TfLiteFloatArrayCopy(quant_params->scale);
     CHECK(quant_params_clone->scale);
     quant_params_clone->zero_point =
         TfLiteIntArrayCopy(quant_params->zero_point);
