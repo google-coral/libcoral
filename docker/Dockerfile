@@ -15,7 +15,6 @@ RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y \
       sudo \
       debhelper \
-      python \
       python3-all \
       python3-numpy \
       python3-setuptools \
