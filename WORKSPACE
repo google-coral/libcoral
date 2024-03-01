@@ -23,14 +23,14 @@ local_repository(
 
 # ==================================================================
 
-# Add definition of tensorflow version 2.15.0
+# Add definition of tensorflow version 2.16.0-rc0
 http_archive(
         name = "org_tensorflow",
         urls = [
-            "https://github.com/tensorflow/tensorflow/archive/6887368d6d46223f460358323c4b76d61d1558a8.tar.gz",
+            "https://github.com/tensorflow/tensorflow/archive/4bdc149ac84738b06a592473595c1c9c2bd2a9a3.tar.gz",
         ],
-        sha256 = "bb25fa4574e42ea4d452979e1d2ba3b86b39569d6b8106a846a238b880d73652",
-        strip_prefix = "tensorflow-" + "6887368d6d46223f460358323c4b76d61d1558a8",
+        sha256 = "1bbdd3dd266de720e08b7093d2441a9bca183c32d7c8e4c84e05d17e770974bf",
+        strip_prefix = "tensorflow-" + "4bdc149ac84738b06a592473595c1c9c2bd2a9a3",
         )
 
 http_archive(
