@@ -44,9 +44,9 @@ http_archive(
 
 http_archive(
     name = "rules_python",
-    sha256 = "c68bdc4fbec25de5b5493b8819cfc877c4ea299c0dcb15c244c5a00208cde311",
-    strip_prefix = "rules_python-0.31.0",
-    url = "https://github.com/bazelbuild/rules_python/releases/download/0.31.0/rules_python-0.31.0.tar.gz",
+    sha256 = "9d04041ac92a0985e344235f5d946f71ac543f1b1565f2cdbc9a2aaee8adf55b",
+    strip_prefix = "rules_python-0.26.0",
+    url = "https://github.com/bazelbuild/rules_python/releases/download/0.26.0/rules_python-0.26.0.tar.gz",
 )
 
 load("@rules_python//python:repositories.bzl", "py_repositories")
@@ -70,7 +70,34 @@ python_register_toolchains(
 )
 
 load("@python//:defs.bzl", "interpreter")
-load("@rules_python//python:pip.bzl", "package_annotation")
+load("@rules_python//python:pip.bzl", "package_annotation", "pip_parse")
+
+NUMPY_ANNOTATIONS = {
+    "numpy": package_annotation(
+        additive_build_content = """\
+filegroup(
+    name = "includes",
+    srcs = glob(["site-packages/numpy/core/include/**/*.h"]),
+)
+cc_library(
+    name = "numpy_headers",
+    hdrs = [":includes"],
+    strip_include_prefix="site-packages/numpy/core/include/",
+)
+""",
+    ),
+}
+
+pip_parse(
+    name = "pypi",
+    annotations = NUMPY_ANNOTATIONS,
+    python_interpreter_target = interpreter,
+    requirements = "@org_tensorflow//:requirements_lock_" + HERMETIC_PYTHON_VERSION.replace(".", "_") + ".txt",
+)
+
+load("@pypi//:requirements.bzl", "install_deps")
+
+install_deps()
 
 # ==================================================================
 
