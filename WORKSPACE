@@ -23,6 +23,7 @@ local_repository(
 
 # ==================================================================
 
+# Add definition of tensorflow version 2.15.0
 http_archive(
         name = "org_tensorflow",
         urls = [
@@ -32,7 +33,6 @@ http_archive(
         strip_prefix = "tensorflow-" + "6887368d6d46223f460358323c4b76d61d1558a8",
         )
 
-# Add definition of tensorflow version 2.15.0
 http_archive(
     name = "bazel_skylib",
     sha256 = "74d544d96f4a5bb630d465ca8bbcfe231e3594e5aae57e1edbf17a6eb3ca2506",
