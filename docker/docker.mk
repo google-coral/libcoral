@@ -3,7 +3,7 @@ DOCKER_MK_DIR := $(realpath $(dir $(lastword $(MAKEFILE_LIST))))
 # Docker
 DOCKER_CPUS ?= k8 armv7a aarch64
 DOCKER_TARGETS ?=
-DOCKER_IMAGE ?= debian:stretch
+DOCKER_IMAGE ?= debian:bookworm
 DOCKER_TAG_BASE ?= "bazel-cross"
 DOCKER_TAG := "$(DOCKER_TAG_BASE)-$(subst :,-,$(DOCKER_IMAGE))"
 DOCKER_SHELL_COMMAND ?=
