@@ -41,7 +41,7 @@ BAZEL_BUILD_FLAGS := --compilation_mode=$(COMPILATION_MODE) \
                      --cpu=$(CPU)
 
 ifeq ($(CPU),aarch64)
-BAZEL_BUILD_FLAGS += --copt=-ffp-contract=off --cxxopt=-mfp16-format=ieee
+BAZEL_BUILD_FLAGS += --copt=-ffp-contract=off
 else ifeq ($(CPU),armv7a)
 BAZEL_BUILD_FLAGS += --copt=-ffp-contract=off --cxxopt=-mfp16-format=ieee
 endif
