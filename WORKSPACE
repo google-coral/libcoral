@@ -24,13 +24,25 @@ local_repository(
 # ==================================================================
 
 # Add definition of tensorflow version 2.16.0-rc0
+#http_archive(
+#        name = "org_tensorflow",
+#        urls = [
+#            "https://github.com/tensorflow/tensorflow/archive/4bdc149ac84738b06a592473595c1c9c2bd2a9a3.tar.gz",
+#        ],
+#        sha256 = "1bbdd3dd266de720e08b7093d2441a9bca183c32d7c8e4c84e05d17e770974bf",
+#        strip_prefix = "tensorflow-" + "4bdc149ac84738b06a592473595c1c9c2bd2a9a3",
+#        )
+
+# Add definition of tensorflow version 2.17.0-dev with visibility commit for SCHEMA.
+# Reference: https://github.com/tensorflow/tensorflow/issues/63074
+# This will be removed once TF 2.17.0 is stable.
 http_archive(
         name = "org_tensorflow",
         urls = [
-            "https://github.com/tensorflow/tensorflow/archive/4bdc149ac84738b06a592473595c1c9c2bd2a9a3.tar.gz",
+            "https://github.com/tensorflow/tensorflow/archive/79ecb3f8bb6bd73f0115fa9a97b630a6f745a426.tar.gz",
         ],
-        sha256 = "1bbdd3dd266de720e08b7093d2441a9bca183c32d7c8e4c84e05d17e770974bf",
-        strip_prefix = "tensorflow-" + "4bdc149ac84738b06a592473595c1c9c2bd2a9a3",
+        sha256 = "488dcc18e8d3896a54c9abdc657c43a580d70d72d69e6d6db07a4be95cdfbc3e",
+        strip_prefix = "tensorflow-" + "79ecb3f8bb6bd73f0115fa9a97b630a6f745a426",
         )
 
 http_archive(
