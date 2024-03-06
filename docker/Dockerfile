@@ -77,7 +77,7 @@ RUN git clone https://github.com/raspberrypi/tools.git && \
     cd tools && \
     git reset --hard 4a335520900ce55e251ac4f420f52bf0b2ab6b1f
 
-ARG BAZEL_VERSION=6.1.0
+ARG BAZEL_VERSION=6.5.0
 RUN wget -O /bazel https://github.com/bazelbuild/bazel/releases/download/${BAZEL_VERSION}/bazel-${BAZEL_VERSION}-installer-linux-x86_64.sh && \
     bash /bazel && \
     rm -f /bazel

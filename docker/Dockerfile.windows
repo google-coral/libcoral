@@ -1,7 +1,7 @@
 FROM mcr.microsoft.com/windows/servercore:1903
 SHELL ["powershell", "-command"]
 
-ARG BAZEL_VERSION=6.1.0
+ARG BAZEL_VERSION=6.5.0
 # Install Bazel
 ADD https://github.com/bazelbuild/bazel/releases/download/${BAZEL_VERSION}/bazel-${BAZEL_VERSION}-windows-x86_64.exe c:/windows/system32/bazel.exe
 
