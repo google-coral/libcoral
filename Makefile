@@ -43,7 +43,7 @@ BAZEL_BUILD_FLAGS := --compilation_mode=$(COMPILATION_MODE) \
 ifeq ($(CPU),aarch64)
 BAZEL_BUILD_FLAGS += --copt=-ffp-contract=off
 else ifeq ($(CPU),armv7a)
-BAZEL_BUILD_FLAGS += --copt=-ffp-contract=off
+BAZEL_BUILD_FLAGS += --copt=-ffp-contract=off --copt=-mfp16-format=ieee
 endif
 
 # $(1): pattern, $(2) destination directory
