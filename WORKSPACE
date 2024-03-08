@@ -23,14 +23,14 @@ local_repository(
 
 # ==================================================================
 
-# Add definition of tensorflow version 2.16.0-rc0
+# Add definition of tensorflow version 2.16.1 stable.
 #http_archive(
 #        name = "org_tensorflow",
 #        urls = [
-#            "https://github.com/tensorflow/tensorflow/archive/4bdc149ac84738b06a592473595c1c9c2bd2a9a3.tar.gz",
+#            "https://github.com/tensorflow/tensorflow/archive/5bc9d26649cca274750ad3625bd93422617eed4b.tar.gz",
 #        ],
-#        sha256 = "1bbdd3dd266de720e08b7093d2441a9bca183c32d7c8e4c84e05d17e770974bf",
-#        strip_prefix = "tensorflow-" + "4bdc149ac84738b06a592473595c1c9c2bd2a9a3",
+#        sha256 = "fe592915c85d1a89c20f3dd89db0772ee22a0fbda78e39aa46a778d638a96abc",
+#        strip_prefix = "tensorflow-" + "5bc9d26649cca274750ad3625bd93422617eed4b",
 #        )
 
 # Add definition of tensorflow version 2.17.0-dev with visibility commit for SCHEMA.
