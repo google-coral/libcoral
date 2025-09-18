@@ -40,7 +40,7 @@ MatrixXf CrossEntropyGradient(const MatrixXf& c, const MatrixXf& p) {
 MatrixXf FullyConnected(const MatrixXf& mat_x, const MatrixXf& mat_w,
                         const MatrixXf& mat_b) {
   MatrixXf mat_y = mat_x * mat_w;
-  mat_y.array().rowwise() += mat_b.array()(0, Eigen::all);
+  mat_y.array().rowwise() += mat_b.array()(0, Eigen::indexing::all);
   return mat_y;
 }
 

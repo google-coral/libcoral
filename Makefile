@@ -20,14 +20,18 @@ ifeq ($(OS),Linux)
 CPU ?= k8
 TEST_FILTER ?= cat
 else ifeq ($(OS),Darwin)
-CPU ?= darwin
+ifeq ($(ARCH),arm)
+CPU ?= darwin_arm64
+else
+CPU ?= darwin_x86_64
+endif
 TEST_FILTER ?= grep -v dmabuf
 else
 $(error $(OS) is not supported)
 endif
 
-ifeq ($(filter $(CPU),k8 armv7a aarch64 darwin),)
-$(error CPU must be k8, armv7a, aarch64, or darwin)
+ifeq ($(filter $(CPU),k8 armv7a aarch64 darwin_arm64 darwin_x86_64),)
+$(error CPU must be k8, armv7a, aarch64, or darwin_arm64 darwin_x86_64)
 endif
 
 # Allowed COMPILATION_MODE values: opt, dbg, fastbuild
@@ -43,7 +47,7 @@ BAZEL_BUILD_FLAGS := --compilation_mode=$(COMPILATION_MODE) \
 ifeq ($(CPU),aarch64)
 BAZEL_BUILD_FLAGS += --copt=-ffp-contract=off
 else ifeq ($(CPU),armv7a)
-BAZEL_BUILD_FLAGS += --copt=-ffp-contract=off
+BAZEL_BUILD_FLAGS += --copt=-ffp-contract=off --copt=-mfp16-format=ieee
 endif
 
 # $(1): pattern, $(2) destination directory

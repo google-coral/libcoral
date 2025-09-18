@@ -41,7 +41,7 @@ TrainingData ShuffleAndSplitData(const MatrixXf& data_matrix,
                std::mt19937(rd()));
   MatrixXf shuffled_data =
       MatrixXf::Zero(data_matrix.rows(), data_matrix.cols());
-  shuffled_data = data_matrix(shuffled_indices, Eigen::all);
+  shuffled_data = data_matrix(shuffled_indices, Eigen::indexing::all);
   std::vector<int> shuffled_labels(total_rows, -1);
   for (int i = 0; i < total_rows; ++i) {
     shuffled_labels[i] = labels_vector[shuffled_indices[i]];
@@ -50,9 +50,9 @@ TrainingData ShuffleAndSplitData(const MatrixXf& data_matrix,
   // Eigen::seq boundaries are inclusive on both sides.
   TrainingData fake_data;
   fake_data.training_data =
-      shuffled_data(Eigen::seq(0, num_train - 1), Eigen::all);
+      shuffled_data(Eigen::seq(0, num_train - 1), Eigen::indexing::all);
   fake_data.validation_data =
-      shuffled_data(Eigen::seq(num_train, Eigen::last), Eigen::all);
+      shuffled_data(Eigen::seq(num_train, Eigen::placeholders::last), Eigen::indexing::all);
 
   fake_data.training_labels.assign(shuffled_labels.begin(),
                                    shuffled_labels.begin() + num_train);
@@ -105,7 +105,7 @@ TrainingData GenerateMvnRandomData(const std::vector<int>& class_sizes,
     MultiVariateNormalDistribution dist(means[i], cov_mats[i]);
     MatrixXf samples = dist.Sample(n);
     // Eigen::seq boundaries are inclusive on both sides.
-    data_matrix(Eigen::seq(start_index, start_index + n - 1), Eigen::all) =
+    data_matrix(Eigen::seq(start_index, start_index + n - 1), Eigen::indexing::all) =
         samples.transpose();
     labels_vector.insert(labels_vector.end(), n, i);
     start_index += n;
@@ -127,7 +127,7 @@ TrainingData GenerateUniformRandomData(const std::vector<int>& class_sizes,
     int n = class_sizes[i];
     MatrixXf samples = MatrixXf::Random(total_cols, n);
     // Eigen::seq boundaries are inclusive on both sides.
-    data_matrix(Eigen::seq(start_index, start_index + n - 1), Eigen::all) =
+    data_matrix(Eigen::seq(start_index, start_index + n - 1), Eigen::indexing::all) =
         samples.transpose();
     labels_vector.insert(labels_vector.end(), n, i);
     start_index += n;

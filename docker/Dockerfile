@@ -15,7 +15,7 @@ RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y \
       sudo \
       debhelper \
-      python \
+      dh-python \
       python3-all \
       python3-numpy \
       python3-setuptools \
@@ -52,10 +52,20 @@ RUN if grep 'Bionic Beaver' /etc/os-release > /dev/null; then \
 
 # On older Ubuntu these packages can't be installed in a multi-arch fashion.
 # Instead we download the debs and extract them for build time linking.
-RUN mkdir /debs && chmod a=rwx /debs && cd /debs && apt-get update && apt-get download \
-  libglib2.0-0 \
-  libglib2.0-0:armhf \
-  libglib2.0-0:arm64 \
+
+RUN if grep 'Noble Numbat' /etc/os-release > /dev/null; then \
+    mkdir /debs && chmod a=rwx /debs && cd /debs && apt-get update && apt-get download \
+    libglib2.0-0t64 \
+    libglib2.0-0t64:armhf \
+    libglib2.0-0t64:arm64; \
+    else \
+    mkdir /debs && chmod a=rwx /debs && cd /debs && apt-get update && apt-get download \
+    libglib2.0-0 \
+    libglib2.0-0:armhf \
+    libglib2.0-0:arm64; \
+    fi
+
+RUN cd /debs && apt-get update && apt-get download --ignore-missing \
   libglib2.0-dev \
   libglib2.0-dev:armhf \
   libglib2.0-dev:arm64 \
@@ -78,7 +88,7 @@ RUN git clone https://github.com/raspberrypi/tools.git && \
     cd tools && \
     git reset --hard 4a335520900ce55e251ac4f420f52bf0b2ab6b1f
 
-ARG BAZEL_VERSION=4.0.0
+ARG BAZEL_VERSION=6.5.0
 RUN wget -O /bazel https://github.com/bazelbuild/bazel/releases/download/${BAZEL_VERSION}/bazel-${BAZEL_VERSION}-installer-linux-x86_64.sh && \
     bash /bazel && \
     rm -f /bazel

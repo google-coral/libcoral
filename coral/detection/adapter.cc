@@ -78,11 +78,11 @@ std::vector<Object> GetDetectionResults(const tflite::Interpreter& interpreter,
   // If a model has signature, we use the signature output tensor names to parse
   // the results. Otherwise, we parse the results based on some assumption of
   // the output tensor order and size.
-  if (!interpreter.signature_def_names().empty()) {
-    CHECK_EQ(interpreter.signature_def_names().size(), 1);
-    VLOG(1) << "Signature name: " << *interpreter.signature_def_names()[0];
+  if (!interpreter.signature_keys().empty()) {
+    CHECK_EQ(interpreter.signature_keys().size(), 1);
+    VLOG(1) << "Signature name: " << *interpreter.signature_keys()[0];
     const auto& signature_output_map = interpreter.signature_outputs(
-        interpreter.signature_def_names()[0]->c_str());
+        interpreter.signature_keys()[0]->c_str());
     CHECK_EQ(signature_output_map.size(), 4);
     count = TensorData<float>(
         *interpreter.tensor(signature_output_map.at("output_0")));

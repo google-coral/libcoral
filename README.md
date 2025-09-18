@@ -76,7 +76,7 @@ You need to install the following software:
 1.  Bazel for macOS from https://github.com/bazelbuild/bazel/releases
 1.  MacPorts from https://www.macports.org/install.php
 1.  Ports of `python` interpreter and `numpy` library: `sudo port install
-    python35 python36 python37 py35-numpy py36-numpy py37-numpy`
+    python38 python39 python310 python311 py38-numpy py39-numpy py310-numpy python311-numpy`
 1.  Port of `libusb` library: `sudo port install libusb`
 
 Right after that all normal `make` commands should work as usual. You can run
@@ -88,6 +88,6 @@ Docker allows to avoid complicated environment setup and build binaries for
 Linux on other operating systems without complicated setup, e.g.,
 
 ```
-make DOCKER_IMAGE=debian:buster DOCKER_CPUS="k8 armv7a aarch64" DOCKER_TARGETS=tests docker-build
-make DOCKER_IMAGE=ubuntu:18.04 DOCKER_CPUS="k8 armv7a aarch64" DOCKER_TARGETS=tests docker-build
+make DOCKER_IMAGE=debian:bookworm DOCKER_CPUS="k8 armv7a aarch64" DOCKER_TARGETS=tests docker-build
+make DOCKER_IMAGE=ubuntu:22.04 DOCKER_CPUS="k8 armv7a aarch64" DOCKER_TARGETS=tests docker-build
 ```

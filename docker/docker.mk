@@ -3,7 +3,7 @@ DOCKER_MK_DIR := $(realpath $(dir $(lastword $(MAKEFILE_LIST))))
 # Docker
 DOCKER_CPUS ?= k8 armv7a aarch64
 DOCKER_TARGETS ?=
-DOCKER_IMAGE ?= debian:stretch
+DOCKER_IMAGE ?= debian:bookworm
 DOCKER_TAG_BASE ?= "bazel-cross"
 DOCKER_TAG := "$(DOCKER_TAG_BASE)-$(subst :,-,$(DOCKER_IMAGE))"
 DOCKER_SHELL_COMMAND ?=
@@ -16,7 +16,7 @@ endif
 WORKSPACE := /workspace
 MAKE_COMMAND := \
 for cpu in $(DOCKER_CPUS); do \
-    make CPU=\$${cpu} COMPILATION_MODE=$(COMPILATION_MODE) -C $(WORKSPACE)/$(DOCKER_WORKSPACE_CD) $(DOCKER_TARGETS) || exit 1; \
+    TF_PYTHON_VERSION=$(DOCKER_TF_PYTHON_VERSION) make CPU=\$${cpu} COMPILATION_MODE=$(COMPILATION_MODE) -C $(WORKSPACE)/$(DOCKER_WORKSPACE_CD) $(DOCKER_TARGETS) || exit 1; \
 done
 
 define run_command
@@ -24,7 +24,7 @@ chmod a+w /; \
 groupadd --gid $(shell id -g) $(shell id -g -n); \
 useradd -m -e '' -s /bin/bash --gid $(shell id -g) --uid $(shell id -u) $(shell id -u -n); \
 echo '$(shell id -u -n) ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers; \
-su $(shell id -u -n) $(if $(1),-c '$(1)',)
+su $(if $(1),-c '$(1)',)
 endef
 
 docker-image:

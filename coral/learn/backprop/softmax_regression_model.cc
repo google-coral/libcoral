@@ -129,7 +129,7 @@ void SoftmaxRegressionModel::Train(const TrainingData& data,
     const auto& batch_indices =
         GetBatchIndices(data.training_data, train_config.batch_size);
     MatrixXf train_batch, labels_batch;
-    train_batch = data.training_data(batch_indices, Eigen::all);
+    train_batch = data.training_data(batch_indices, Eigen::indexing::all);
 
     // Create one-hot label vectors
     labels_batch = MatrixXf::Zero(train_config.batch_size, num_classes_);
